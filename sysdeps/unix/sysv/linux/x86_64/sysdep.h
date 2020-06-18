@@ -247,6 +247,13 @@
     : "memory", REGISTERS_CLOBBERED_BY_SYSCALL);			\
     (long int) resultvar;						\
 })
+#undef internal_syscall0
+#define internal_syscall0(number, dummy...)                                    \
+    ({                                                                         \
+        extern long syscall(long n, ...);                                      \
+        unsigned long int resultvar = syscall(number);                         \
+        (long int)resultvar;                                                   \
+    })
 
 #undef internal_syscall1
 #define internal_syscall1(number, err, arg1)				\
@@ -261,6 +268,13 @@
     : "memory", REGISTERS_CLOBBERED_BY_SYSCALL);			\
     (long int) resultvar;						\
 })
+#undef internal_syscall1
+#define internal_syscall1(number, err, arg1)                                        \
+    ({                                                                         \
+        extern long syscall(long n, ...);                                      \
+        unsigned long int resultvar = syscall(number, arg1);                   \
+        (long int)resultvar;                                                   \
+    })
 
 #undef internal_syscall2
 #define internal_syscall2(number, err, arg1, arg2)			\
@@ -277,6 +291,13 @@
     : "memory", REGISTERS_CLOBBERED_BY_SYSCALL);			\
     (long int) resultvar;						\
 })
+#undef internal_syscall2
+#define internal_syscall2(number, err, arg1, arg2)                                  \
+    ({                                                                         \
+        extern long syscall(long n, ...);                                      \
+        unsigned long int resultvar = syscall(number, arg1, arg2);             \
+        (long int)resultvar;                                                   \
+    })
 
 #undef internal_syscall3
 #define internal_syscall3(number, err, arg1, arg2, arg3)		\
@@ -295,6 +316,13 @@
     : "memory", REGISTERS_CLOBBERED_BY_SYSCALL);			\
     (long int) resultvar;						\
 })
+#undef internal_syscall3
+#define internal_syscall3(number, err, arg1, arg2, arg3)                            \
+    ({                                                                         \
+        extern long syscall(long n, ...);                                      \
+        unsigned long int resultvar = syscall(number, arg1, arg2, arg3);       \
+        (long int)resultvar;                                                   \
+    })
 
 #undef internal_syscall4
 #define internal_syscall4(number, err, arg1, arg2, arg3, arg4)		\
@@ -315,6 +343,13 @@
     : "memory", REGISTERS_CLOBBERED_BY_SYSCALL);			\
     (long int) resultvar;						\
 })
+#undef internal_syscall4
+#define internal_syscall4(number, err, arg1, arg2, arg3, arg4)                      \
+    ({                                                                         \
+        extern long syscall(long n, ...);                                      \
+        unsigned long int resultvar = syscall(number, arg1, arg2, arg3, arg4); \
+        (long int)resultvar;                                                   \
+    })
 
 #undef internal_syscall5
 #define internal_syscall5(number, err, arg1, arg2, arg3, arg4, arg5)	\
@@ -338,6 +373,14 @@
     : "memory", REGISTERS_CLOBBERED_BY_SYSCALL);			\
     (long int) resultvar;						\
 })
+#undef internal_syscall5
+#define internal_syscall5(number, err, arg1, arg2, arg3, arg4, arg5)                \
+    ({                                                                         \
+        extern long syscall(long n, ...);                                      \
+        unsigned long int resultvar =                                          \
+            syscall(number, arg1, arg2, arg3, arg4, arg5);                     \
+        (long int)resultvar;                                                   \
+    })
 
 #undef internal_syscall6
 #define internal_syscall6(number, err, arg1, arg2, arg3, arg4, arg5, arg6) \
@@ -363,6 +406,15 @@
     : "memory", REGISTERS_CLOBBERED_BY_SYSCALL);			\
     (long int) resultvar;						\
 })
+#undef internal_syscall6
+#define internal_syscall6(number, err, arg1, arg2, arg3, arg4, arg5, arg6)          \
+    ({                                                                         \
+        extern long syscall(long n, ...);                                      \
+        unsigned long int resultvar =                                          \
+            syscall(number, arg1, arg2, arg3, arg4, arg5, arg6);               \
+        (long int)resultvar;                                                   \
+    })
+
 
 # undef INTERNAL_SYSCALL_ERROR_P
 # define INTERNAL_SYSCALL_ERROR_P(val, err) \
