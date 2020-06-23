@@ -26,6 +26,10 @@
 # include <dl-sysdep.h>		/* Defines RTLD_PRIVATE_ERRNO.  */
 #endif
 
+#ifndef __ASSEMBLER__
+#include <errno.h>
+#endif
+
 /* For Linux we can use the system call table in the header file
 	/usr/include/asm/unistd.h
    of the kernel.  But these symbols do not follow the SYS_* syntax
@@ -187,6 +191,15 @@
 # define DOARGS_6 DOARGS_5
 
 #else	/* !__ASSEMBLER__ */
+
+#define ARGS_6 ARGS_5, __arg6
+#define ARGS_5 ARGS_4, __arg5
+#define ARGS_4 ARGS_3, __arg4
+#define ARGS_3 ARGS_2, __arg3
+#define ARGS_2 ARGS_1, __arg2
+#define ARGS_1 , __arg1
+#define ARGS_0
+
 /* Define a macro which expands inline into the wrapper code for a system
    call.  */
 # undef INLINE_SYSCALL
@@ -217,30 +230,24 @@
 # undef INTERNAL_SYSCALL_DECL
 # define INTERNAL_SYSCALL_DECL(err) do { } while (0)
 
-# define INTERNAL_SYSCALL_NCS(name, err, nr, args...) \
-  ({									      \
-    unsigned long int resultvar;					      \
-    LOAD_ARGS_##nr (args)						      \
-    LOAD_REGS_##nr							      \
-    asm volatile (							      \
-    "syscall\n\t"							      \
-    : "=a" (resultvar)							      \
-    : "0" (name) ASM_ARGS_##nr : "memory", "cc", "r11", "cx");		      \
-    (long int) resultvar; })
+#define INTERNAL_SYSCALL_NCS(name, err, nr, args...)                           \
+    ({                                                                         \
+        LOAD_ARGS_##nr(args);                                                  \
+        extern long syscall(long, ...);                                        \
+        long int resultvar = syscall(name ARGS_##nr);                          \
+        (resultvar == -1 ? -errno : resultvar);                          \
+    })
 # undef INTERNAL_SYSCALL
 # define INTERNAL_SYSCALL(name, err, nr, args...) \
   INTERNAL_SYSCALL_NCS (__NR_##name, err, nr, ##args)
 
-# define INTERNAL_SYSCALL_NCS_TYPES(name, err, nr, args...) \
-  ({									      \
-    unsigned long int resultvar;					      \
-    LOAD_ARGS_TYPES_##nr (args)						      \
-    LOAD_REGS_TYPES_##nr (args)						      \
-    asm volatile (							      \
-    "syscall\n\t"							      \
-    : "=a" (resultvar)							      \
-    : "0" (name) ASM_ARGS_##nr : "memory", "cc", "r11", "cx");		      \
-    (long int) resultvar; })
+#define INTERNAL_SYSCALL_NCS_TYPES(name, err, nr, args...)                     \
+    ({                                                                         \
+        LOAD_ARGS_TYPES_##nr(args);                                             \
+        extern long syscall(long, ...);                                        \
+        long int resultvar = syscall(name ARGS_##nr);                          \
+        (resultvar == -1 ? -errno : resultvar);                          \
+    })
 # undef INTERNAL_SYSCALL_TYPES
 # define INTERNAL_SYSCALL_TYPES(name, err, nr, args...) \
   INTERNAL_SYSCALL_NCS_TYPES (__NR_##name, err, nr, ##args)
