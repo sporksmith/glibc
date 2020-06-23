@@ -22,8 +22,7 @@
    The last six characters of TEMPLATE must be "XXXXXX";
    they are replaced with a string that makes the filename unique.  */
 char *
-mktemp (template)
-     char *template;
+__mktemp (char *template)
 {
   if (__gen_tempname (template, 0, 0, __GT_NOCREATE) < 0)
     /* We return the null string if we can't find a unique file name.  */
@@ -31,5 +30,6 @@ mktemp (template)
 
   return template;
 }
+weak_alias (__mktemp, mktemp)
 
 link_warning (mktemp, "the use of `mktemp' is dangerous, better use `mkstemp'")

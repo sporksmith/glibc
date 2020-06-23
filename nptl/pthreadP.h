@@ -61,6 +61,10 @@
 enum
 {
   PTHREAD_MUTEX_KIND_MASK_NP = 3,
+
+  PTHREAD_MUTEX_ELISION_NP    = 256,
+  PTHREAD_MUTEX_NO_ELISION_NP = 512,
+
   PTHREAD_MUTEX_ROBUST_NORMAL_NP = 16,
   PTHREAD_MUTEX_ROBUST_RECURSIVE_NP
   = PTHREAD_MUTEX_ROBUST_NORMAL_NP | PTHREAD_MUTEX_RECURSIVE_NP,
@@ -93,12 +97,23 @@ enum
   PTHREAD_MUTEX_PP_ERRORCHECK_NP
   = PTHREAD_MUTEX_PRIO_PROTECT_NP | PTHREAD_MUTEX_ERRORCHECK_NP,
   PTHREAD_MUTEX_PP_ADAPTIVE_NP
-  = PTHREAD_MUTEX_PRIO_PROTECT_NP | PTHREAD_MUTEX_ADAPTIVE_NP
+  = PTHREAD_MUTEX_PRIO_PROTECT_NP | PTHREAD_MUTEX_ADAPTIVE_NP,
+  PTHREAD_MUTEX_ELISION_FLAGS_NP
+  = PTHREAD_MUTEX_ELISION_NP | PTHREAD_MUTEX_NO_ELISION_NP,
+
+  PTHREAD_MUTEX_TIMED_ELISION_NP =
+	  PTHREAD_MUTEX_TIMED_NP | PTHREAD_MUTEX_ELISION_NP,
+  PTHREAD_MUTEX_TIMED_NO_ELISION_NP =
+	  PTHREAD_MUTEX_TIMED_NP | PTHREAD_MUTEX_NO_ELISION_NP,
 };
 #define PTHREAD_MUTEX_PSHARED_BIT 128
 
 #define PTHREAD_MUTEX_TYPE(m) \
   ((m)->__data.__kind & 127)
+/* Don't include NO_ELISION, as that type is always the same
+   as the underlying lock type.  */
+#define PTHREAD_MUTEX_TYPE_ELISION(m) \
+  ((m)->__data.__kind & (127|PTHREAD_MUTEX_ELISION_NP))
 
 #if LLL_PRIVATE == 0 && LLL_SHARED == 128
 # define PTHREAD_MUTEX_PSHARED(m) \
@@ -144,11 +159,17 @@ enum
 #define FUTEX_TID_MASK		0x3fffffff
 
 
+/* pthread_once definitions.  See __pthread_once for how these are used.  */
+#define __PTHREAD_ONCE_INPROGRESS	1
+#define __PTHREAD_ONCE_DONE		2
+#define __PTHREAD_ONCE_FORK_GEN_INCR	4
+
+
 /* Internal variables.  */
 
 
-/* Default stack size.  */
-extern size_t __default_stacksize attribute_hidden;
+/* Default pthread attributes.  */
+extern struct pthread_attr __default_pthread_attr attribute_hidden;
 
 /* Size and alignment of static TLS block.  */
 extern size_t __static_tls_size attribute_hidden;
@@ -225,7 +246,7 @@ extern int __pthread_debug attribute_hidden;
 
 extern void __pthread_unwind (__pthread_unwind_buf_t *__buf)
      __cleanup_fct_attribute __attribute ((__noreturn__))
-#if !defined SHARED && !defined IS_IN_libpthread
+#if !defined SHARED && !IS_IN (libpthread)
      weak_function
 #endif
      ;
@@ -239,7 +260,7 @@ extern void __pthread_register_cancel (__pthread_unwind_buf_t *__buf)
      __cleanup_fct_attribute;
 extern void __pthread_unregister_cancel (__pthread_unwind_buf_t *__buf)
      __cleanup_fct_attribute;
-#if defined NOT_IN_libc && defined IS_IN_libpthread
+#if IS_IN (libpthread)
 hidden_proto (__pthread_unwind)
 hidden_proto (__pthread_unwind_next)
 hidden_proto (__pthread_register_cancel)
@@ -273,7 +294,7 @@ __do_cancel (void)
 #define CANCEL_RESET(oldtype) \
   __pthread_disable_asynccancel (oldtype)
 
-#if !defined NOT_IN_libc
+#if IS_IN (libc)
 /* Same as CANCEL_ASYNC, but for use in libc.so.  */
 # define LIBC_CANCEL_ASYNC() \
   __libc_enable_asynccancel ()
@@ -283,13 +304,13 @@ __do_cancel (void)
 # define LIBC_CANCEL_HANDLED() \
   __asm (".globl " __SYMBOL_PREFIX "__libc_enable_asynccancel"); \
   __asm (".globl " __SYMBOL_PREFIX "__libc_disable_asynccancel")
-#elif defined NOT_IN_libc && defined IS_IN_libpthread
+#elif IS_IN (libpthread)
 # define LIBC_CANCEL_ASYNC() CANCEL_ASYNC ()
 # define LIBC_CANCEL_RESET(val) CANCEL_RESET (val)
 # define LIBC_CANCEL_HANDLED() \
   __asm (".globl " __SYMBOL_PREFIX "__pthread_enable_asynccancel"); \
   __asm (".globl " __SYMBOL_PREFIX "__pthread_disable_asynccancel")
-#elif defined NOT_IN_libc && defined IS_IN_librt
+#elif IS_IN (librt)
 # define LIBC_CANCEL_ASYNC() \
   __librt_enable_asynccancel ()
 # define LIBC_CANCEL_RESET(val) \
@@ -344,7 +365,7 @@ extern int __make_stacks_executable (void **stack_endp)
 
 /* longjmp handling.  */
 extern void __pthread_cleanup_upto (__jmp_buf target, char *targetframe);
-#if defined NOT_IN_libc && defined IS_IN_libpthread
+#if IS_IN (libpthread)
 hidden_proto (__pthread_cleanup_upto)
 #endif
 
@@ -489,7 +510,7 @@ extern int __pthread_enable_asynccancel (void) attribute_hidden;
 extern void __pthread_disable_asynccancel (int oldtype)
      internal_function attribute_hidden;
 
-#if defined NOT_IN_libc && defined IS_IN_libpthread
+#if IS_IN (libpthread)
 hidden_proto (__pthread_mutex_init)
 hidden_proto (__pthread_mutex_destroy)
 hidden_proto (__pthread_mutex_lock)
@@ -528,7 +549,7 @@ extern int __librt_enable_asynccancel (void) attribute_hidden;
 extern void __librt_disable_asynccancel (int oldtype)
      internal_function attribute_hidden;
 
-#ifdef IS_IN_libpthread
+#if IS_IN (libpthread)
 /* Special versions which use non-exported functions.  */
 extern void __pthread_cleanup_push (struct _pthread_cleanup_buffer *buffer,
 				    void (*routine) (void *), void *arg)

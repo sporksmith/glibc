@@ -521,7 +521,8 @@ test_exceptions (const char *test_name, int exception)
 }
 
 
-static void
+/* Attributes work around suspected gcc 4.8 bug #1209619.  */
+static void __attribute__ ((noclone, noinline))
 check_float_internal (const char *test_name, FLOAT computed, FLOAT expected,
 		      FLOAT max_ulp, int xfail, int exceptions,
 		      FLOAT *curr_max_error)
@@ -610,7 +611,8 @@ check_float_internal (const char *test_name, FLOAT computed, FLOAT expected,
 }
 
 
-static void
+/* Attributes work around suspected gcc 4.8 bug #1209619.  */
+static void __attribute__ ((noclone, noinline))
 check_float (const char *test_name, FLOAT computed, FLOAT expected,
 	     FLOAT max_ulp, int xfail, int exceptions)
 {
@@ -619,7 +621,8 @@ check_float (const char *test_name, FLOAT computed, FLOAT expected,
 }
 
 
-static void
+/* Attributes work around suspected gcc 4.8 bug #1209619.  */
+static void __attribute__ ((noclone, noinline))
 check_complex (const char *test_name, __complex__ FLOAT computed,
 	       __complex__ FLOAT expected,
 	       __complex__ FLOAT max_ulp, __complex__ int xfail,
@@ -2237,6 +2240,15 @@ ceil_test (void)
   TEST_f_f (ceil, -72057594037927936.5L, -72057594037927936.0L);
   TEST_f_f (ceil, -72057594037927936.75L, -72057594037927936.0L);
   TEST_f_f (ceil, -72057594037927937.5L, -72057594037927937.0L);
+
+  /* Check cases where first double is a exact integer higher than 2^52 and
+     the precision is determined by second long double for IBM long double.  */
+  TEST_f_f (ceil,  34503599627370498.515625L, 34503599627370499.0L);
+  TEST_f_f (ceil, -34503599627370498.515625L, -34503599627370498.0L);
+# if LDBL_MANT_DIG >= 106
+  TEST_f_f (ceil,  1192568192774434123539907640624.484375L, 1192568192774434123539907640625.0L);
+  TEST_f_f (ceil, -1192568192774434123539907640624.484375L, -1192568192774434123539907640624.0L);
+# endif
 
   TEST_f_f (ceil, 10141204801825835211973625643007.5L, 10141204801825835211973625643008.0L);
   TEST_f_f (ceil, 10141204801825835211973625643008.25L, 10141204801825835211973625643009.0L);
@@ -4040,6 +4052,10 @@ erf_test (void)
   TEST_f_f (erf, 2.0L, 0.995322265018952734162069256367252929L);
   TEST_f_f (erf, 4.125L, 0.999999994576599200434933994687765914L);
   TEST_f_f (erf, 27.0L, 1.0L);
+#if defined TEST_LDOUBLE && LDBL_MANT_DIG >= 54
+  /* The input is not exactly representable as a double.  */
+  TEST_f_f (erf, -0x1.fffffffffffff8p-2L, -0.5204998778130465132916303345518417673509L);
+#endif
 
   END (erf);
 }
@@ -4071,6 +4087,10 @@ erfc_test (void)
   TEST_f_f (erfc, 0x1.ffa002p+2L, 1.233585992097580296336099501489175967033e-29L);
   TEST_f_f (erfc, 0x1.ffffc8p+2L, 1.122671365033056305522366683719541099329e-29L);
 #ifdef TEST_LDOUBLE
+# if LDBL_MANT_DIG >= 54
+  /* The input is not exactly representable as a double.  */
+  TEST_f_f (erfc, -0x1.fffffffffffff8p-2L, 1.52049987781304651329163033455184176735L);
+# endif
   /* The result can only be represented in long double.  */
 # if LDBL_MIN_10_EXP < -319
   TEST_f_f (erfc, 27.0L, 0.523704892378925568501606768284954709e-318L);
@@ -5634,6 +5654,13 @@ fmod_test (void)
 #if defined TEST_LDOUBLE && LDBL_MIN_EXP <= -16381
   TEST_ff_f (fmod, 0x0.fffffffffffffffep-16382L, 0x1p-16445L, plus_zero);
 #endif
+#if defined TEST_LDOUBLE && LDBL_MANT_DIG >= 56
+  TEST_ff_f (fmod, -0x1.00000000000004p+0L, 0x1.fffffffffffff8p-1L, -0x1p-53L);
+  TEST_ff_f (fmod, 0x1.fffffffffffffap-1L, 0x1.fffffffffffff8p-1L, 0x1p-56L);
+  TEST_ff_f (fmod, -0x1.fffffffffffffap-1L, 0x1.fffffffffffff8p-1L, -0x1p-56L);
+  TEST_ff_f (fmod, 0x1.fffffffffffffap-1L, -0x1.fffffffffffff8p-1L, 0x1p-56L);
+  TEST_ff_f (fmod, -0x1.fffffffffffffap-1L, -0x1.fffffffffffff8p-1L, -0x1p-56L);
+#endif
 
   END (fmod);
 }
@@ -5672,6 +5699,15 @@ frexp_test (void)
 
   TEST_fI_f1 (frexp, 12.8L, 0.8L, 4);
   TEST_fI_f1 (frexp, -27.34L, -0.854375L, 5);
+
+#if defined TEST_LDOUBLE && LDBL_MANT_DIG >= 106
+  TEST_fI_f1 (frexp, 1.0L-0x1p-106L, 1.0L-0x1p-106L, 0),
+  TEST_fI_f1 (frexp, 1.0L, 0.5L, 1),
+  TEST_fI_f1 (frexp, 1.0L+0x1p-105L, 0.5L+0x1p-106L, 1),
+  TEST_fI_f1 (frexp, -1.0L+0x1p-106L, -1.0L+0x1p-106L, 0),
+  TEST_fI_f1 (frexp, -1.0L, -0.5L, 1),
+  TEST_fI_f1 (frexp, -1.0L-0x1p-105L, -0.5L-0x1p-106L, 1),
+#endif
 
   END (frexp);
 }
@@ -7592,6 +7628,16 @@ nearbyint_test (void)
   TEST_f_f (nearbyint, -562949953421312.75, -562949953421313.0);
   TEST_f_f (nearbyint, -1125899906842624.75, -1125899906842625.0);
 #endif
+#ifdef TEST_LDOUBLE
+    /* Check cases where first double is a exact integer higher than 2^52 and
+       the precision is determined by second long double for IBM long double.  */
+    TEST_f_f (nearbyint,  34503599627370498.515625L, 34503599627370499.0L);
+    TEST_f_f (nearbyint, -34503599627370498.515625L, -34503599627370499.0L);
+# if LDBL_MANT_DIG >= 106
+    TEST_f_f (nearbyint,  1192568192774434123539907640624.484375L, 1192568192774434123539907640624.0L);
+    TEST_f_f (nearbyint, -1192568192774434123539907640624.484375L, -1192568192774434123539907640624.0L);
+# endif
+#endif
 
   END (nearbyint);
 }
@@ -8181,6 +8227,14 @@ pow_test (void)
 #if defined TEST_DOUBLE || defined TEST_LDOUBLE
   TEST_ff_f (pow, -7.49321e+133, -9.80818e+16, 0, UNDERFLOW_EXCEPTION);
 #endif
+#if defined TEST_LDOUBLE && LDBL_MANT_DIG == 106
+    TEST_ff_f (nextafter, 1.0L, -10.0L, 1.0L-0x1p-106L, NO_EXCEPTION),
+    TEST_ff_f (nextafter, 1.0L, 10.0L, 1.0L+0x1p-105L, NO_EXCEPTION),
+    TEST_ff_f (nextafter, 1.0L-0x1p-106L, 10.0L, 1.0L, NO_EXCEPTION),
+    TEST_ff_f (nextafter, -1.0L, -10.0L, -1.0L-0x1p-105L, NO_EXCEPTION),
+    TEST_ff_f (nextafter, -1.0L, 10.0L, -1.0L+0x1p-106L, NO_EXCEPTION),
+    TEST_ff_f (nextafter, -1.0L+0x1p-106L, -10.0L, -1.0L, NO_EXCEPTION),
+#endif
 
   TEST_ff_f (pow, -1.0, -0xffffff, -1.0);
   TEST_ff_f (pow, -1.0, -0x1fffffe, 1.0);
@@ -8642,6 +8696,9 @@ remainder_test (void)
   TEST_ff_f (remainder, -1.625, -1.0, 0.375);
   TEST_ff_f (remainder, 5.0, 2.0, 1.0);
   TEST_ff_f (remainder, 3.0, 2.0, -1.0);
+#if defined TEST_LDOUBLE && LDBL_MANT_DIG >= 56
+  TEST_ff_f (remainder, -0x1.80000000000002p1L, 2.0, 0x1.fffffffffffff8p-1L);
+#endif
 
   END (remainder);
 }
@@ -9229,6 +9286,15 @@ round_test (void)
   TEST_f_f (round, -72057594037927936.5L, -72057594037927937.0L);
   TEST_f_f (round, -72057594037927936.75L, -72057594037927937.0L);
   TEST_f_f (round, -72057594037927937.5L, -72057594037927938.0L);
+
+  /* Check cases where first double is a exact integer higher than 2^52 and
+     the precision is determined by second long double for IBM long double.  */
+  TEST_f_f (round,  34503599627370498.515625L, 34503599627370499.0L);
+  TEST_f_f (round, -34503599627370498.515625L, -34503599627370499.0L);
+# if LDBL_MANT_DIG >= 106
+  TEST_f_f (round,  1192568192774434123539907640624.484375L, 1192568192774434123539907640624.0L);
+  TEST_f_f (round, -1192568192774434123539907640624.484375L, -1192568192774434123539907640624.0L);
+# endif
 
   TEST_f_f (round, 10141204801825835211973625643007.5L, 10141204801825835211973625643008.0L);
   TEST_f_f (round, 10141204801825835211973625643008.25L, 10141204801825835211973625643008.0L);

@@ -25,7 +25,6 @@
 
 #ifdef _LIBC
 # define USE_NUMBER_GROUPING
-# define STDC_HEADERS
 # define HAVE_LIMITS_H
 #endif
 
@@ -223,19 +222,15 @@ extern const unsigned char __strtol_ull_rem_tab[] attribute_hidden;
    one converted is stored in *ENDPTR.  */
 
 INT
-INTERNAL (__strtol_l) (nptr, endptr, base, group, loc)
-     const STRING_TYPE *nptr;
-     STRING_TYPE **endptr;
-     int base;
-     int group;
-     __locale_t loc;
+INTERNAL (__strtol_l) (const STRING_TYPE *nptr, STRING_TYPE **endptr,
+		       int base, int group, __locale_t loc)
 {
   int negative;
-  register unsigned LONG int cutoff;
-  register unsigned int cutlim;
-  register unsigned LONG int i;
-  register const STRING_TYPE *s;
-  register UCHAR_TYPE c;
+  unsigned LONG int cutoff;
+  unsigned int cutlim;
+  unsigned LONG int i;
+  const STRING_TYPE *s;
+  UCHAR_TYPE c;
   const STRING_TYPE *save, *end;
   int overflow;
 #ifndef USE_WIDE_CHAR
@@ -547,11 +542,8 @@ INT
 #ifdef weak_function
 weak_function
 #endif
-__strtol_l (nptr, endptr, base, loc)
-     const STRING_TYPE *nptr;
-     STRING_TYPE **endptr;
-     int base;
-     __locale_t loc;
+__strtol_l (const STRING_TYPE *nptr, STRING_TYPE **endptr,
+	    int base, __locale_t loc)
 {
   return INTERNAL (__strtol_l) (nptr, endptr, base, 0, loc);
 }

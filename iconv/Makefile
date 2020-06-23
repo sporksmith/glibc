@@ -43,7 +43,7 @@ CFLAGS-charmap.c = -DCHARMAP_PATH='"$(i18ndir)/charmaps"' \
 CFLAGS-linereader.c = -DNO_TRANSLITERATION
 CFLAGS-simple-hash.c = -I../locale
 
-tests	= tst-iconv1 tst-iconv2 tst-iconv3 tst-iconv4 tst-iconv5
+tests	= tst-iconv1 tst-iconv2 tst-iconv3 tst-iconv4 tst-iconv5 tst-iconv6
 
 others		= iconv_prog iconvconfig
 install-others-programs	= $(inst_bindir)/iconv
@@ -53,13 +53,10 @@ CFLAGS-gconv_cache.c += -DGCONV_DIR='"$(gconvdir)"'
 CFLAGS-gconv_conf.c = -DGCONV_PATH='"$(gconvdir)"'
 CFLAGS-iconvconfig.c = -DGCONV_PATH='"$(gconvdir)"' -DGCONV_DIR='"$(gconvdir)"'
 
-CPPFLAGS-iconv_prog = -DNOT_IN_libc
-CPPFLAGS-iconv_charmap = -DNOT_IN_libc
-CPPFLAGS-iconvconfig = -DNOT_IN_libc
-CPPFLAGS-linereader = -DNOT_IN_libc
-CPPFLAGS-strtab = -DNOT_IN_libc
-CPPFLAGS-charmap = -DNOT_IN_libc
-CPPFLAGS-charmap-dir = -DNOT_IN_libc
+# Set libof-* for each routine.
+cpp-srcs-left := $(iconv_prog-modules) $(iconvconfig-modules)
+lib := iconvprogs
+include $(patsubst %,$(..)cppflags-iterator.mk,$(cpp-srcs-left))
 
 include ../Rules
 

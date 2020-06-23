@@ -26,14 +26,13 @@
 
 #include <sysdep.h>
 #include <sys/syscall.h>
-#include <bp-checks.h>
 
 #include <kernel-features.h>
 
 
 /* If we compile the file for use in ld.so we don't need the feature
    that getcwd() allocates the buffers itself.  */
-#ifdef IS_IN_rtld
+#if IS_IN (rtld)
 # define NO_ALLOCATION	1
 #endif
 
@@ -78,8 +77,8 @@ __getcwd (char *buf, size_t size)
 
   int retval;
 
-  retval = INLINE_SYSCALL (getcwd, 2, CHECK_STRING (path), alloc_size);
-  if (retval >= 0)
+  retval = INLINE_SYSCALL (getcwd, 2, path, alloc_size);
+  if (retval >= 0 && path[0] == '/')
     {
 #ifndef NO_ALLOCATION
       if (buf == NULL && size == 0)
@@ -95,10 +94,10 @@ __getcwd (char *buf, size_t size)
       return buf;
     }
 
-  /* The system call cannot handle paths longer than a page.
-     Neither can the magic symlink in /proc/self.  Just use the
+  /* The system call either cannot handle paths longer than a page
+     or can succeed without returning an absolute path.  Just use the
      generic implementation right away.  */
-  if (errno == ENAMETOOLONG)
+  if (retval >= 0 || errno == ENAMETOOLONG)
     {
 #ifndef NO_ALLOCATION
       if (buf == NULL && size == 0)

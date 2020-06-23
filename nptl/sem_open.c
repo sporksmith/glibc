@@ -307,9 +307,17 @@ sem_open (const char *name, int oflag, ...)
 	struct new_sem newsem;
       } sem;
 
-      sem.newsem.value = value;
-      sem.newsem.private = 0;
+#if __HAVE_64B_ATOMICS
+      sem.newsem.data = value;
+#else
+      sem.newsem.value = value << SEM_VALUE_SHIFT;
       sem.newsem.nwaiters = 0;
+#endif
+      /* pad is used as a mutex on pre-v9 sparc and ignored otherwise.  */
+      sem.newsem.pad = 0;
+
+      /* This always is a shared semaphore.  */
+      sem.newsem.private = LLL_SHARED;
 
       /* Initialize the remaining bytes as well.  */
       memset ((char *) &sem.initsem + sizeof (struct new_sem), '\0',
@@ -329,7 +337,7 @@ sem_open (const char *name, int oflag, ...)
 	     since the file must be opened with a specific mode.  The
 	     mode cannot later be set since then we cannot apply the
 	     file create mask.  */
-	  if (mktemp (tmpfname) == NULL)
+	  if (__mktemp (tmpfname) == NULL)
 	    return SEM_FAILED;
 
 	  /* Open the file.  Make sure we do not overwrite anything.  */

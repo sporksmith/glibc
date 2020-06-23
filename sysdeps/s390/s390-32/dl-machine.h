@@ -89,6 +89,11 @@ elf_machine_runtime_setup (struct link_map *l, int lazy, int profile)
 {
   extern void _dl_runtime_resolve (Elf32_Word);
   extern void _dl_runtime_profile (Elf32_Word);
+#if defined HAVE_S390_VX_ASM_SUPPORT
+  extern void _dl_runtime_resolve_vx (Elf32_Word);
+  extern void _dl_runtime_profile_vx (Elf32_Word);
+#endif
+
 
   if (l->l_info[DT_JMPREL] && lazy)
     {
@@ -116,7 +121,14 @@ elf_machine_runtime_setup (struct link_map *l, int lazy, int profile)
 	 end in this function.  */
       if (__builtin_expect (profile, 0))
 	{
+#if defined HAVE_S390_VX_ASM_SUPPORT
+	  if (GLRO(dl_hwcap) & HWCAP_S390_VX)
+	    got[2] = (Elf32_Addr) &_dl_runtime_profile_vx;
+	  else
+	    got[2] = (Elf32_Addr) &_dl_runtime_profile;
+#else
 	  got[2] = (Elf32_Addr) &_dl_runtime_profile;
+#endif
 
 	  if (GLRO(dl_profile) != NULL
 	      && _dl_name_match_p (GLRO(dl_profile), l))
@@ -125,9 +137,18 @@ elf_machine_runtime_setup (struct link_map *l, int lazy, int profile)
 	    GL(dl_profile_map) = l;
 	}
       else
-	/* This function will get called to fix up the GOT entry indicated by
-	   the offset on the stack, and then jump to the resolved address.  */
-	got[2] = (Elf32_Addr) &_dl_runtime_resolve;
+	{
+	  /* This function will get called to fix up the GOT entry indicated by
+	     the offset on the stack, and then jump to the resolved address.  */
+#if defined HAVE_S390_VX_ASM_SUPPORT
+	  if (GLRO(dl_hwcap) & HWCAP_S390_VX)
+	    got[2] = (Elf32_Addr) &_dl_runtime_resolve_vx;
+	  else
+	    got[2] = (Elf32_Addr) &_dl_runtime_resolve;
+#else
+	  got[2] = (Elf32_Addr) &_dl_runtime_resolve;
+#endif
+	}
     }
 
   return lazy;
@@ -166,18 +187,49 @@ _dl_start_user:\n\
 	# See if we were run as a command with the executable file\n\
 	# name as an extra leading argument.\n\
 	l     %r1,_dl_skip_args@GOT12(0,%r12)\n\
-	l     %r1,0(%r1)          # load _dl_skip_args\n\
+	l     %r1,0(%r1)	# load _dl_skip_args\n\
+	ltr   %r1,%r1\n\
+	je    .L4		# Skip the arg adjustment if there were none.\n\
 	# Get the original argument count.\n\
 	l     %r0,96(%r15)\n\
 	# Subtract _dl_skip_args from it.\n\
 	sr    %r0,%r1\n\
-	# Adjust the stack pointer to skip _dl_skip_args words.\n\
-	sll   %r1,2\n\
-	ar    %r15,%r1\n\
-	# Set the back chain to zero again\n\
-	xc    0(4,%r15),0(%r15)\n\
 	# Store back the modified argument count.\n\
 	st    %r0,96(%r15)\n\
+	# Copy argv and envp forward to account for skipped argv entries.\n\
+	# We skipped at least one argument or we would not get here.\n\
+	la    %r6,100(%r15)	# Destination pointer i.e. &argv[0]\n\
+	lr    %r5,%r6\n\
+	lr    %r0,%r1\n\
+	sll   %r0,2\n		# Number of skipped bytes.\n\
+	ar    %r5,%r0		# Source pointer = Dest + Skipped args.\n\
+	# argv copy loop:\n\
+.L1:	l     %r7,0(%r5)	# Load a word from the source.\n\
+	st    %r7,0(%r6)	# Store the word in the destination.\n\
+	ahi   %r5,4\n\
+	ahi   %r6,4\n\
+	ltr   %r7,%r7\n\
+	jne   .L1		# Stop after copying the NULL.\n\
+	# envp copy loop:\n\
+.L2:	l     %r7,0(%r5)	# Load a word from the source.\n\
+	st    %r7,0(%r6)	# Store the word in the destination.\n\
+	ahi   %r5,4\n\
+	ahi   %r6,4\n\
+	ltr   %r7,%r7\n\
+	jne   .L2		# Stop after copying the NULL.\n\
+	# Now we have to zero out the envp entries after NULL to allow\n\
+	# start.S to properly find auxv by skipping zeroes.\n\
+	# zero out loop:\n\
+	lhi   %r7,0\n\
+.L3:	st    %r7,0(%r6)	# Store zero.\n\
+	ahi   %r6,4		# Advance dest pointer.\n\
+	ahi   %r1,-1		# Subtract one from the word count.\n\
+	ltr   %r1,%r1\n\
+	jne    .L3		# Keep copying if the word count is non-zero.\n\
+	# Adjust _dl_argv\n\
+	la    %r6,100(%r15)\n\
+	l     %r1,_dl_argv@GOT12(0,%r12)\n\
+	st    %r6,0(%r1)\n\
 	# The special initializer gets called with the stack just\n\
 	# as the application's entry point will see it; it can\n\
 	# switch stacks if it moves these contents over.\n\
@@ -185,7 +237,7 @@ _dl_start_user:\n\
 	# Call the function to run the initializers.\n\
 	# Load the parameters:\n\
 	# (%r2, %r3, %r4, %r5) = (_dl_loaded, argc, argv, envp)\n\
-	l     %r2,_rtld_local@GOT(%r12)\n\
+.L4:	l     %r2,_rtld_local@GOT(%r12)\n\
 	l     %r2,0(%r2)\n\
 	l     %r3,96(%r15)\n\
 	la    %r4,100(%r15)\n\
@@ -198,6 +250,9 @@ _dl_start_user:\n\
 	l     %r14,_dl_fini@GOT(%r12)\n\
 	# Free stack frame\n\
 	ahi   %r15,96\n\
+	# Reload argc and argv for the user's entry point.\n\
+	# l     %r2,0(%r15)\n\
+	# la    %r3,4(%r15)\n\
 	# Jump to the user's entry point (saved in %r8).\n\
 	br    %r8\n\
 .Llit:\n\
@@ -226,6 +281,7 @@ _dl_start_user:\n\
 
 /* The S390 never uses Elf32_Rel relocations.  */
 #define ELF_MACHINE_NO_REL 1
+#define ELF_MACHINE_NO_RELA 0
 
 /* We define an initialization functions.  This is called very early in
    _dl_sysdep_start.  */
@@ -299,7 +355,8 @@ elf_machine_rela (struct link_map *map, const Elf32_Rela *reloc,
     return;
   else
     {
-#ifndef RESOLVE_CONFLICT_FIND_MAP
+#if !defined RTLD_BOOTSTRAP && !defined RESOLVE_CONFLICT_FIND_MAP
+      /* Only needed for R_390_COPY below.  */
       const Elf32_Sym *const refsym = sym;
 #endif
       struct link_map *sym_map = RESOLVE_MAP (&sym, version, r_type);

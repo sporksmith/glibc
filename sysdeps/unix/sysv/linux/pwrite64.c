@@ -22,7 +22,6 @@
 
 #include <sysdep-cancel.h>
 #include <sys/syscall.h>
-#include <bp-checks.h>
 
 #include <kernel-features.h>
 
@@ -39,7 +38,7 @@ do_pwrite64 (int fd, const void *buf, size_t count, off64_t offset)
 {
   ssize_t result;
 
-  result = INLINE_SYSCALL (pwrite, 5, fd, CHECK_N (buf, count), count,
+  result = INLINE_SYSCALL (pwrite, 5, fd, buf, count,
 			   __LONG_LONG_PAIR ((off_t) (offset >> 32),
 					     (off_t) (offset & 0xffffffff)));
 
@@ -48,11 +47,7 @@ do_pwrite64 (int fd, const void *buf, size_t count, off64_t offset)
 
 
 ssize_t
-__libc_pwrite64 (fd, buf, count, offset)
-     int fd;
-     const void *buf;
-     size_t count;
-     off64_t offset;
+__libc_pwrite64 (int fd, const void *buf, size_t count, off64_t offset)
 {
   if (SINGLE_THREAD_P)
     return do_pwrite64 (fd, buf, count, offset);

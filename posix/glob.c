@@ -251,11 +251,8 @@ int
 #ifdef GLOB_ATTRIBUTE
 GLOB_ATTRIBUTE
 #endif
-glob (pattern, flags, errfunc, pglob)
-     const char *pattern;
-     int flags;
-     int (*errfunc) (const char *, int);
-     glob_t *pglob;
+glob (const char *pattern, int flags, int (*errfunc) (const char *, int),
+      glob_t *pglob)
 {
   const char *filename;
   char *dirname = NULL;
@@ -806,11 +803,11 @@ glob (pattern, flags, errfunc, pglob)
 		  char *p = mempcpy (newp, dirname + 1,
 				     unescape - dirname - 1);
 		  char *q = unescape;
-		  while (*q != '\0')
+		  while (q != end_name)
 		    {
 		      if (*q == '\\')
 			{
-			  if (q[1] == '\0')
+			  if (q + 1 == end_name)
 			    {
 			      /* "~fo\\o\\" unescape to user_name "foo\\",
 				 but "~fo\\o\\/" unescape to user_name
@@ -826,7 +823,7 @@ glob (pattern, flags, errfunc, pglob)
 		  *p = '\0';
 		}
 	      else
-		*((char *) mempcpy (newp, dirname + 1, end_name - dirname))
+		*((char *) mempcpy (newp, dirname + 1, end_name - dirname - 1))
 		  = '\0';
 	      user_name = newp;
 	    }
@@ -1263,8 +1260,7 @@ libc_hidden_def (glob)
 
 /* Free storage allocated in PGLOB by a previous `glob' call.  */
 void
-globfree (pglob)
-     register glob_t *pglob;
+globfree (glob_t *pglob)
 {
   if (pglob->gl_pathv != NULL)
     {
@@ -1304,7 +1300,7 @@ collated_compare (const void *a, const void *b)
 static int
 prefix_array (const char *dirname, char **array, size_t n)
 {
-  register size_t i;
+  size_t i;
   size_t dirlen = strlen (dirname);
 #if defined __MSDOS__ || defined WINDOWS32
   int sep_char = '/';
@@ -1359,11 +1355,9 @@ prefix_array (const char *dirname, char **array, size_t n)
 /* We must not compile this function twice.  */
 #if !defined _LIBC || !defined NO_GLOB_PATTERN_P
 int
-__glob_pattern_type (pattern, quote)
-     const char *pattern;
-     int quote;
+__glob_pattern_type (const char *pattern, int quote)
 {
-  register const char *p;
+  const char *p;
   int ret = 0;
 
   for (p = pattern; *p != '\0'; ++p)
@@ -1398,9 +1392,7 @@ __glob_pattern_type (pattern, quote)
 /* Return nonzero if PATTERN contains any metacharacters.
    Metacharacters can be quoted with backslashes if QUOTE is nonzero.  */
 int
-__glob_pattern_p (pattern, quote)
-     const char *pattern;
-     int quote;
+__glob_pattern_p (const char *pattern, int quote)
 {
   return __glob_pattern_type (pattern, quote) == 1;
 }

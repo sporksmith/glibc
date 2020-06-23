@@ -162,7 +162,6 @@
 # endif
 #endif
 
-
 /* How many bytes are needed at most for the from-charset.  */
 #ifndef MAX_NEEDED_FROM
 # define MAX_NEEDED_FROM	MIN_NEEDED_FROM
@@ -203,7 +202,7 @@
 /* Define macros which can access unaligned buffers.  These macros are
    supposed to be used only in code outside the inner loops.  For the inner
    loops we have other definitions which allow optimized access.  */
-#ifdef _STRING_ARCH_unaligned
+#if _STRING_ARCH_unaligned
 /* We can handle unaligned memory access.  */
 # define get16u(addr) *((const uint16_t *) (addr))
 # define get32u(addr) *((const uint32_t *) (addr))
@@ -522,7 +521,7 @@ FUNCTION_NAME (struct __gconv_step *step, struct __gconv_step_data *data,
 	 INTERNAL, for which the subexpression evaluates to 1, but INTERNAL
 	 buffers are always aligned correctly.  */
 #define POSSIBLY_UNALIGNED \
-  (!defined _STRING_ARCH_unaligned					      \
+  (!_STRING_ARCH_unaligned					              \
    && (((FROM_LOOP_MIN_NEEDED_FROM != 1					      \
 	 && FROM_LOOP_MAX_NEEDED_FROM % FROM_LOOP_MIN_NEEDED_FROM == 0)	      \
 	&& (FROM_LOOP_MIN_NEEDED_TO != 1				      \
@@ -683,7 +682,7 @@ FUNCTION_NAME (struct __gconv_step *step, struct __gconv_step_data *data,
 #else
 		      /* We have a problem in one of the functions below.
 			 Undo the conversion upto the error point.  */
-		      size_t nstatus;
+		      size_t nstatus __attribute__ ((unused));
 
 		      /* Reload the pointers.  */
 		      *inptrp = inptr;

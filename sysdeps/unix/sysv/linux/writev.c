@@ -23,7 +23,6 @@
 
 #include <sysdep-cancel.h>
 #include <sys/syscall.h>
-#include <bp-checks.h>
 #include <kernel-features.h>
 
 #ifndef __ASSUME_COMPLETE_READV_WRITEV
@@ -39,20 +38,17 @@ static ssize_t __atomic_writev_replacement (int, const struct iovec *,
 
 
 ssize_t
-__libc_writev (fd, vector, count)
-     int fd;
-     const struct iovec *vector;
-     int count;
+__libc_writev (int fd, const struct iovec *vector, int count)
 {
   ssize_t result;
 
   if (SINGLE_THREAD_P)
-    result = INLINE_SYSCALL (writev, 3, fd, CHECK_N (vector, count), count);
+    result = INLINE_SYSCALL (writev, 3, fd, vector, count);
   else
     {
       int oldtype = LIBC_CANCEL_ASYNC ();
 
-      result = INLINE_SYSCALL (writev, 3, fd, CHECK_N (vector, count), count);
+      result = INLINE_SYSCALL (writev, 3, fd, vector, count);
 
       LIBC_CANCEL_RESET (oldtype);
     }

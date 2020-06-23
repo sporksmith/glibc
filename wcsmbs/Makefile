@@ -32,6 +32,7 @@ routines := wcscat wcschr wcscmp wcscpy wcscspn wcsdup wcslen wcsncat \
 	    wcstol wcstoul wcstoll wcstoull wcstod wcstold wcstof \
 	    wcstol_l wcstoul_l wcstoll_l wcstoull_l \
 	    wcstod_l wcstold_l wcstof_l \
+	    wcstod_nan wcstold_nan wcstof_nan \
 	    wcscoll wcsxfrm \
 	    wcwidth wcswidth \
 	    wcscoll_l wcsxfrm_l \
@@ -41,7 +42,9 @@ routines := wcscat wcschr wcscmp wcscpy wcscspn wcsdup wcslen wcsncat \
 	    isoc99_swscanf isoc99_vswscanf \
 	    mbrtoc16 c16rtomb
 
-strop-tests :=  wcscmp wmemcmp wcslen wcschr wcsrchr wcscpy
+strop-tests :=  wcscmp wcsncmp wmemcmp wcslen wcschr wcsrchr wcscpy wcsnlen \
+		wcpcpy wcsncpy wcpncpy wcscat wcsncat wcschrnul wcsspn wcspbrk \
+		wcscspn wmemchr wmemset
 tests := tst-wcstof wcsmbs-tst1 tst-wcsnlen tst-btowc tst-mbrtowc \
 	 tst-wcrtomb tst-wcpncpy tst-mbsrtowcs tst-wchar-h tst-mbrtowc2 \
 	 tst-c16c32-1 wcsatcliff $(addprefix test-,$(strop-tests))
@@ -79,10 +82,3 @@ CPPFLAGS += $(libio-mtsafe)
 
 # We need to find the default version of strtold_l in stdlib.
 CPPFLAGS-wcstold_l.c = -I../stdlib
-
-tst-btowc-ENV = LOCPATH=$(common-objpfx)localedata
-tst-mbrtowc-ENV = LOCPATH=$(common-objpfx)localedata
-tst-wcrtomb-ENV = LOCPATH=$(common-objpfx)localedata
-tst-mbrtowc2-ENV = LOCPATH=$(common-objpfx)localedata
-tst-c16c32-1-ENV = LOCPATH=$(common-objpfx)localedata
-tst-mbsnrtowcs-ENV = LOCPATH=$(common-objpfx)localedata

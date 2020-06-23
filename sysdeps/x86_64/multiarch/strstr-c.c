@@ -17,6 +17,10 @@
    License along with the GNU C Library; if not, see
    <http://www.gnu.org/licenses/>.  */
 
+/* RHEL 7-specific: Define multiple versions only for the definition in
+   libc.  Don't define multiple versions for strstr in static library
+   since we need strstr before initialization has happened.  */
+#if defined SHARED && IS_IN (libc)
 /* Redefine strstr so that the compiler won't complain about the type
    mismatch with the IFUNC selector in strong_alias, below.  */
 #undef  strstr
@@ -30,10 +34,13 @@
 # define libc_hidden_builtin_def(name) \
   __hidden_ver1 (__strstr_sse2, __GI_strstr, __strstr_sse2);
 #endif
+#endif
 
 #include "string/strstr.c"
 
+#if defined SHARED && IS_IN (libc)
 extern __typeof (__redirect_strstr) __strstr_sse42 attribute_hidden;
+extern __typeof (__redirect_strstr) __strstr_sse2_unaligned attribute_hidden;
 extern __typeof (__redirect_strstr) __strstr_sse2 attribute_hidden;
 
 #include "init-arch.h"
@@ -41,7 +48,11 @@ extern __typeof (__redirect_strstr) __strstr_sse2 attribute_hidden;
 /* Avoid DWARF definition DIE on ifunc symbol so that GDB can handle
    ifunc symbol properly.  */
 extern __typeof (__redirect_strstr) __libc_strstr;
-libc_ifunc (__libc_strstr, HAS_SSE4_2 ? __strstr_sse42 : __strstr_sse2)
+libc_ifunc (__libc_strstr, HAS_CPU_FEATURE (SSE4_2) ? (use_unaligned_strstr () ?
+					 __strstr_sse2_unaligned :
+					 __strstr_sse42) : __strstr_sse2)
 
 #undef strstr
 strong_alias (__libc_strstr, strstr)
+#endif
+

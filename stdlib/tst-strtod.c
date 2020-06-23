@@ -85,7 +85,7 @@ int
 main (int argc, char ** argv)
 {
   char buf[100];
-  register const struct ltest *lt;
+  const struct ltest *lt;
   char *ep;
   int status = 0;
   int save_errno;
@@ -182,9 +182,7 @@ main (int argc, char ** argv)
 }
 
 static void
-expand (dst, c)
-     char *dst;
-     register int c;
+expand (char *dst, int c)
 {
   if (isprint (c))
     {

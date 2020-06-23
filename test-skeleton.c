@@ -18,8 +18,10 @@
    <http://www.gnu.org/licenses/>.  */
 
 #include <errno.h>
+#include <fcntl.h>
 #include <getopt.h>
 #include <malloc.h>
+#include <paths.h>
 #include <search.h>
 #include <signal.h>
 #include <stdio.h>
@@ -30,6 +32,7 @@
 #include <sys/wait.h>
 #include <sys/param.h>
 #include <time.h>
+#include <stdarg.h>
 
 /* The test function is normally called `do_test' and it is called
    with argc and argv as the arguments.  We nevertheless provide the
@@ -61,11 +64,25 @@ static pid_t pid;
 /* Directory to place temporary files in.  */
 static const char *test_dir;
 
+/* Call asprintf with error checking.  */
+__attribute__ ((always_inline, format (printf, 1, 2)))
+static __inline__ char *
+xasprintf (const char *format, ...)
+{
+  char *result;
+  if (asprintf (&result, format, __builtin_va_arg_pack ()) < 0)
+    {
+      printf ("error: asprintf: %m\n");
+      exit (1);
+    }
+  return result;
+}
+
 /* List of temporary files.  */
 struct temp_name_list
 {
   struct qelem q;
-  const char *name;
+  char *name;
 } *temp_name_list;
 
 /* Add temporary files in list.  */
@@ -75,14 +92,17 @@ add_temp_file (const char *name)
 {
   struct temp_name_list *newp
     = (struct temp_name_list *) calloc (sizeof (*newp), 1);
-  if (newp != NULL)
+  char *newname = strdup (name);
+  if (newp != NULL && newname != NULL)
     {
-      newp->name = name;
+      newp->name = newname;
       if (temp_name_list == NULL)
 	temp_name_list = (struct temp_name_list *) &newp->q;
       else
 	insque (newp, temp_name_list);
     }
+  else
+    free (newp);
 }
 
 /* Delete all temporary files.  */
@@ -92,11 +112,19 @@ delete_temp_files (void)
   while (temp_name_list != NULL)
     {
       remove (temp_name_list->name);
-      temp_name_list = (struct temp_name_list *) temp_name_list->q.q_forw;
+      free (temp_name_list->name);
+
+      struct temp_name_list *next
+	= (struct temp_name_list *) temp_name_list->q.q_forw;
+      free (temp_name_list);
+      temp_name_list = next;
     }
 }
 
-/* Create a temporary file.  */
+/* Create a temporary file.  Return the opened file descriptor on
+   success, or -1 on failure.  Write the file name to *FILENAME if
+   FILENAME is not NULL.  In this case, the caller is expected to free
+   *FILENAME.  */
 static int
 __attribute__ ((unused))
 create_temp_file (const char *base, char **filename)
@@ -124,6 +152,8 @@ create_temp_file (const char *base, char **filename)
   add_temp_file (fname);
   if (filename != NULL)
     *filename = fname;
+  else
+    free (fname);
 
   return fd;
 }
@@ -158,7 +188,7 @@ signal_handler (int sig __attribute__ ((unused)))
     }
   if (killed != 0 && killed != pid)
     {
-      perror ("Failed to kill test process");
+      printf ("Failed to kill test process: %m\n");
       exit (1);
     }
 
@@ -179,19 +209,45 @@ signal_handler (int sig __attribute__ ((unused)))
 #endif
 
   if (killed == 0 || (WIFSIGNALED (status) && WTERMSIG (status) == SIGKILL))
-    fputs ("Timed out: killed the child process\n", stderr);
+    puts ("Timed out: killed the child process");
   else if (WIFSTOPPED (status))
-    fprintf (stderr, "Timed out: the child process was %s\n",
-	     strsignal (WSTOPSIG (status)));
+    printf ("Timed out: the child process was %s\n",
+	    strsignal (WSTOPSIG (status)));
   else if (WIFSIGNALED (status))
-    fprintf (stderr, "Timed out: the child process got signal %s\n",
-	     strsignal (WTERMSIG (status)));
+    printf ("Timed out: the child process got signal %s\n",
+	    strsignal (WTERMSIG (status)));
   else
-    fprintf (stderr, "Timed out: killed the child process but it exited %d\n",
-	     WEXITSTATUS (status));
+    printf ("Timed out: killed the child process but it exited %d\n",
+	    WEXITSTATUS (status));
 
   /* Exit with an error.  */
   exit (1);
+}
+
+/* Set fortification error handler.  Used when tests want to verify that bad
+   code is caught by the library.  */
+static void
+__attribute__ ((unused))
+set_fortify_handler (void (*handler) (int sig))
+{
+  struct sigaction sa;
+
+  sa.sa_handler = handler;
+  sa.sa_flags = 0;
+  sigemptyset (&sa.sa_mask);
+
+  sigaction (SIGABRT, &sa, NULL);
+
+  /* Avoid all the buffer overflow messages on stderr.  */
+  int fd = open (_PATH_DEVNULL, O_WRONLY);
+  if (fd == -1)
+    close (STDERR_FILENO);
+  else
+    {
+      dup2 (fd, STDERR_FILENO);
+      close (fd);
+    }
+  setenv ("LIBC_FATAL_STDERR_", "1", 1);
 }
 
 /* We provide the entry point here.  */
@@ -204,8 +260,10 @@ main (int argc, char *argv[])
   unsigned int timeoutfactor = 1;
   pid_t termpid;
 
+#ifndef TEST_NO_MALLOPT
   /* Make uses of freed and uninitialized memory known.  */
   mallopt (M_PERTURB, 42);
+#endif
 
 #ifdef STDOUT_UNBUFFERED
   setbuf (stdout, NULL);
@@ -247,7 +305,7 @@ main (int argc, char *argv[])
 
       if (chdir (test_dir) < 0)
 	{
-	  perror ("chdir");
+	  printf ("chdir: %m\n");
 	  exit (1);
 	}
     }
@@ -295,23 +353,6 @@ main (int argc, char *argv[])
       setrlimit (RLIMIT_CORE, &core_limit);
 #endif
 
-#ifdef RLIMIT_DATA
-      /* Try to avoid eating all memory if a test leaks.  */
-      struct rlimit data_limit;
-      if (getrlimit (RLIMIT_DATA, &data_limit) == 0)
-	{
-	  if (TEST_DATA_LIMIT == RLIM_INFINITY)
-	    data_limit.rlim_cur = data_limit.rlim_max;
-	  else if (data_limit.rlim_cur > (rlim_t) TEST_DATA_LIMIT)
-	    data_limit.rlim_cur = MIN ((rlim_t) TEST_DATA_LIMIT,
-				       data_limit.rlim_max);
-	  if (setrlimit (RLIMIT_DATA, &data_limit) < 0)
-	    perror ("setrlimit: RLIMIT_DATA");
-	}
-      else
-	perror ("getrlimit: RLIMIT_DATA");
-#endif
-
       /* We put the test process in its own pgrp so that if it bogusly
 	 generates any job control signals, they won't hit the whole build.  */
       setpgid (0, 0);
@@ -321,14 +362,15 @@ main (int argc, char *argv[])
     }
   else if (pid < 0)
     {
-      perror ("Cannot fork test program");
+      printf ("Cannot fork test program: %m\n");
       exit (1);
     }
 
   /* Set timeout.  */
 #ifndef TIMEOUT
-  /* Default timeout is two seconds.  */
-# define TIMEOUT 2
+  /* Default timeout is twenty seconds.  Tests should normally complete faster
+     than this, but if they don't, that's abnormal (a bug) anyways.  */
+# define TIMEOUT 20
 #endif
   signal (SIGALRM, signal_handler);
   alarm (TIMEOUT * timeoutfactor);
@@ -359,18 +401,16 @@ main (int argc, char *argv[])
       if (EXPECTED_SIGNAL != 0)
 	{
 	  if (WTERMSIG (status) == 0)
-	    fprintf (stderr,
-		     "Expected signal '%s' from child, got none\n",
-		     strsignal (EXPECTED_SIGNAL));
+	    printf ("Expected signal '%s' from child, got none\n",
+		    strsignal (EXPECTED_SIGNAL));
 	  else
-	    fprintf (stderr,
-		     "Incorrect signal from child: got `%s', need `%s'\n",
-		     strsignal (WTERMSIG (status)),
-		     strsignal (EXPECTED_SIGNAL));
+	    printf ("Incorrect signal from child: got `%s', need `%s'\n",
+		    strsignal (WTERMSIG (status)),
+		    strsignal (EXPECTED_SIGNAL));
 	}
       else
-	fprintf (stderr, "Didn't expect signal from child: got `%s'\n",
-		 strsignal (WTERMSIG (status)));
+	printf ("Didn't expect signal from child: got `%s'\n",
+		strsignal (WTERMSIG (status)));
       exit (1);
     }
 
@@ -380,11 +420,17 @@ main (int argc, char *argv[])
 #else
   if (WEXITSTATUS (status) != EXPECTED_STATUS)
     {
-      fprintf (stderr, "Expected status %d, got %d\n",
-	       EXPECTED_STATUS, WEXITSTATUS (status));
+      printf ("Expected status %d, got %d\n",
+	      EXPECTED_STATUS, WEXITSTATUS (status));
       exit (1);
     }
 
   return 0;
 #endif
 }
+
+/* The following functionality is only available if <pthread.h> was
+   included before this file.  */
+#ifdef _PTHREAD_H
+# include <support/xthread.h>
+#endif	/* _PTHREAD_H */

@@ -20,7 +20,7 @@
 #include <errno.h>
 #include <malloc.h>
 #include <string.h>
-
+#include <stdint.h>
 #include <search.h>
 
 /* [Aho,Sethi,Ullman] Compilers: Principles, Techniques and Tools, 1986
@@ -47,12 +47,10 @@ static int
 isprime (unsigned int number)
 {
   /* no even number will be passed */
-  unsigned int div = 3;
-
-  while (div * div < number && number % div != 0)
-    div += 2;
-
-  return number % div != 0;
+  for (unsigned int div = 3; div <= number / div; div += 2)
+    if (number % div == 0)
+      return 0;
+  return 1;
 }
 
 
@@ -63,14 +61,18 @@ isprime (unsigned int number)
    The contents of the table is zeroed, especially the field used
    becomes zero.  */
 int
-hcreate_r (nel, htab)
-     size_t nel;
-     struct hsearch_data *htab;
+hcreate_r (size_t nel, struct hsearch_data *htab)
 {
   /* Test for correct arguments.  */
   if (htab == NULL)
     {
       __set_errno (EINVAL);
+      return 0;
+    }
+
+  if (nel >= SIZE_MAX / sizeof (_ENTRY))
+    {
+      __set_errno (ENOMEM);
       return 0;
     }
 
@@ -82,10 +84,19 @@ hcreate_r (nel, htab)
      use will not work.  */
   if (nel < 3)
     nel = 3;
-  /* Change nel to the first prime number not smaller as nel. */
-  nel |= 1;      /* make odd */
-  while (!isprime (nel))
-    nel += 2;
+
+  /* Change nel to the first prime number in the range [nel, UINT_MAX - 2],
+     The '- 2' means 'nel += 2' cannot overflow.  */
+  for (nel |= 1; ; nel += 2)
+    {
+      if (UINT_MAX - 2 < nel)
+        {
+          __set_errno (ENOMEM);
+          return 0;
+        }
+      if (isprime (nel))
+        break;
+    }
 
   htab->size = nel;
   htab->filled = 0;
@@ -104,8 +115,7 @@ libc_hidden_def (hcreate_r)
 /* After using the hash table it has to be destroyed. The used memory can
    be freed and the local static variable can be marked as not used.  */
 void
-hdestroy_r (htab)
-     struct hsearch_data *htab;
+hdestroy_r (struct hsearch_data *htab)
 {
   /* Test for correct arguments.  */
   if (htab == NULL)
@@ -137,11 +147,8 @@ libc_hidden_def (hdestroy_r)
    equality of the stored and the parameter value. This helps to prevent
    unnecessary expensive calls of strcmp.  */
 int
-hsearch_r (item, action, retval, htab)
-     ENTRY item;
-     ACTION action;
-     ENTRY **retval;
-     struct hsearch_data *htab;
+hsearch_r (ENTRY item, ACTION action, ENTRY **retval,
+	   struct hsearch_data *htab)
 {
   unsigned int hval;
   unsigned int count;

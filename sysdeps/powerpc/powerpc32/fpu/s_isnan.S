@@ -37,16 +37,18 @@ weak_alias (__isnan, isnan)
 
 /* It turns out that the 'double' version will also always work for
    single-precision.  */
+#ifndef __isnan
 strong_alias (__isnan, __isnanf)
 hidden_def (__isnanf)
 weak_alias (__isnanf, isnanf)
+#endif
 
 #ifdef NO_LONG_DOUBLE
 strong_alias (__isnan, __isnanl)
 weak_alias (__isnan, isnanl)
 #endif
 
-#ifndef IS_IN_libm
+#if !IS_IN (libm)
 # if LONG_DOUBLE_COMPAT(libc, GLIBC_2_0)
 compat_symbol (libc, __isnan, __isnanl, GLIBC_2_0);
 compat_symbol (libc, isnan, isnanl, GLIBC_2_0);

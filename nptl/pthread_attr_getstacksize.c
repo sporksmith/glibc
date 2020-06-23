@@ -21,9 +21,7 @@
 
 
 int
-__pthread_attr_getstacksize (attr, stacksize)
-     const pthread_attr_t *attr;
-     size_t *stacksize;
+__pthread_attr_getstacksize (const pthread_attr_t *attr, size_t *stacksize)
 {
   struct pthread_attr *iattr;
 
@@ -32,7 +30,7 @@ __pthread_attr_getstacksize (attr, stacksize)
 
   /* If the user has not set a stack size we return what the system
      will use as the default.  */
-  *stacksize = iattr->stacksize ?: __default_stacksize;
+  *stacksize = iattr->stacksize ?: __default_pthread_attr.stacksize;
 
   return 0;
 }

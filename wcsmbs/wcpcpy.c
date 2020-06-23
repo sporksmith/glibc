@@ -21,13 +21,13 @@
 #define __need_ptrdiff_t
 #include <stddef.h>
 
-
+#ifdef WCPCPY
+# define __wcpcpy WCPCPY
+#endif
 /* Copy SRC to DEST, returning the address of the terminating L'\0' in
    DEST.  */
 wchar_t *
-__wcpcpy (dest, src)
-     wchar_t *dest;
-     const wchar_t *src;
+__wcpcpy (wchar_t *dest, const wchar_t *src)
 {
   wchar_t *wcp = (wchar_t *) dest - 1;
   wint_t c;
@@ -43,4 +43,6 @@ __wcpcpy (dest, src)
   return wcp;
 }
 
+#ifndef WCPCPY
 weak_alias (__wcpcpy, wcpcpy)
+#endif

@@ -11,6 +11,7 @@ exec_prefix = @exec_prefix@
 datadir = @datadir@
 libdir = @libdir@
 slibdir = @libc_cv_slibdir@
+rtlddir = @libc_cv_rtlddir@
 localedir = @libc_cv_localedir@
 sysconfdir = @libc_cv_sysconfdir@
 libexecdir = @libexecdir@
@@ -48,6 +49,7 @@ sysheaders = @sysheaders@
 sysincludes = @SYSINCLUDES@
 c++-sysincludes = @CXX_SYSINCLUDES@
 all-warnings = @all_warnings@
+enable-werror = @enable_werror@
 
 have-z-combreloc = @libc_cv_z_combreloc@
 have-z-execstack = @libc_cv_z_execstack@
@@ -61,6 +63,7 @@ have-mfma4 = @libc_cv_cc_fma4@
 have-as-vis3 = @libc_cv_sparc_as_vis3@
 gnu89-inline-CFLAGS = @gnu89_inline@
 have-ssp = @libc_cv_ssp@
+have-ssp-strong = @libc_cv_ssp_strong@
 have-selinux = @have_selinux@
 have-libaudit = @have_libaudit@
 have-libcap = @have_libcap@
@@ -101,6 +104,7 @@ force-install = @force_install@
 link-obsolete-rpc = @link_obsolete_rpc@
 build-nscd = @build_nscd@
 use-nscd = @use_nscd@
+build-pt-chown = @build_pt_chown@
 
 # Build tools.
 CC = @CC@

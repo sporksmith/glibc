@@ -36,7 +36,7 @@ nscd-modules := nscd connections pwdcache getpwnam_r getpwuid_r grpcache \
 		getsrvbynm_r getsrvbypt_r servicescache \
 		dbg_log nscd_conf nscd_stat cache mem nscd_setup_thread \
 		xmalloc xstrdup aicache initgrcache gai res_hconf \
-		netgroupcache
+		netgroupcache nscd-inet_addr
 
 ifeq ($(build-nscd)$(have-thread-library),yesyes)
 
@@ -79,23 +79,25 @@ CFLAGS-nscd_gethst_r.c = -fexceptions
 CFLAGS-nscd_getai.c = -fexceptions
 CFLAGS-nscd_initgroups.c = -fexceptions
 
-CPPFLAGS-nonlib += -DIS_IN_nscd=1 -D_FORTIFY_SOURCE=2
+CPPFLAGS-nscd += -D_FORTIFY_SOURCE=2
 
 ifeq (yesyes,$(have-fpie)$(build-shared))
-CFLAGS-nonlib += $(pie-ccflag)
+CFLAGS-nscd += $(pie-ccflag)
 endif
 ifeq (yes,$(have-ssp))
-CFLAGS-nonlib += -fstack-protector
+CFLAGS-nscd += -fstack-protector
+endif
+ifeq (yes,$(have-ssp-strong))
+CFLAGS-nscd += -fstack-protector-strong
 endif
 
 ifeq (yesyes,$(have-fpie)$(build-shared))
 LDFLAGS-nscd = -Wl,-z,now
 endif
 
-# This makes sure CPPFLAGS-nonlib and CFLAGS-nonlib are passed
-# for all these modules.
-cpp-srcs-left := $(nscd-modules:=.c)
-lib := nonlib
+# Set libof-nscd.
+cpp-srcs-left := $(nscd-modules)
+lib := nscd
 include $(patsubst %,$(..)cppflags-iterator.mk,$(cpp-srcs-left))
 
 $(objpfx)nscd: $(nscd-modules:%=$(objpfx)%.o)

@@ -13,6 +13,7 @@
 #ifdef ERR_MAX
 # define ERRLIST_SIZE ERR_MAX + 1
 #else
+# define ERR_MAX 0
 # define ERRLIST_SIZE
 #endif
 const char *const _sys_errlist_internal[ERRLIST_SIZE] =
@@ -780,11 +781,12 @@ TRANS The user's disk quota was exceeded. */
 #endif
 #ifdef ESTALE
 /*
-TRANS Stale NFS file handle.  This indicates an internal confusion in the NFS
-TRANS system which is due to file system rearrangements on the server host.
-TRANS Repairing this condition usually requires unmounting and remounting
-TRANS the NFS file system on the local host. */
-    [ERR_REMAP (ESTALE)] = N_("Stale NFS file handle"),
+TRANS Stale file handle.  This indicates an internal confusion in the
+TRANS file system which is due to file system rearrangements on the server host
+TRANS for NFS file systems or corruption in other file systems.
+TRANS Repairing this condition usually requires unmounting, possibly repairing
+TRANS and remounting the file system. */
+    [ERR_REMAP (ESTALE)] = N_("Stale file handle"),
 # if ESTALE > ERR_MAX
 # undef ERR_MAX
 # define ERR_MAX ESTALE
@@ -1478,7 +1480,7 @@ TRANS error; @pxref{Cancel AIO Operations}. */
   (sizeof _sys_errlist_internal / sizeof _sys_errlist_internal [0])
 const int _sys_nerr_internal = NERR;
 
-#if !defined NOT_IN_libc && !ERRLIST_NO_COMPAT
+#if IS_IN (libc) && !defined ERRLIST_NO_COMPAT
 # include <errlist-compat.c>
 #endif
 

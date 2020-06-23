@@ -23,6 +23,10 @@
 #include <lowlevellock.h>
 #include <stap-probe.h>
 
+#ifndef lll_unlock_elision
+#define lll_unlock_elision(a,b) ({ lll_unlock (a,b); 0; })
+#endif
+
 static int
 internal_function
 __pthread_mutex_unlock_full (pthread_mutex_t *mutex, int decr)
@@ -30,12 +34,11 @@ __pthread_mutex_unlock_full (pthread_mutex_t *mutex, int decr)
 
 int
 internal_function attribute_hidden
-__pthread_mutex_unlock_usercnt (mutex, decr)
-     pthread_mutex_t *mutex;
-     int decr;
+__pthread_mutex_unlock_usercnt (pthread_mutex_t *mutex, int decr)
 {
-  int type = PTHREAD_MUTEX_TYPE (mutex);
-  if (__builtin_expect (type & ~PTHREAD_MUTEX_KIND_MASK_NP, 0))
+  int type = PTHREAD_MUTEX_TYPE_ELISION (mutex);
+  if (__builtin_expect (type &
+		~(PTHREAD_MUTEX_KIND_MASK_NP|PTHREAD_MUTEX_ELISION_FLAGS_NP), 0))
     return __pthread_mutex_unlock_full (mutex, decr);
 
   if (__builtin_expect (type, PTHREAD_MUTEX_TIMED_NP)
@@ -55,7 +58,14 @@ __pthread_mutex_unlock_usercnt (mutex, decr)
 
       return 0;
     }
-  else if (__builtin_expect (type == PTHREAD_MUTEX_RECURSIVE_NP, 1))
+  else if (__builtin_expect (type == PTHREAD_MUTEX_TIMED_ELISION_NP, 1))
+    {
+      /* Don't reset the owner/users fields for elision.  */
+      return lll_unlock_elision (mutex->__data.__lock,
+				      PTHREAD_MUTEX_PSHARED (mutex));
+    }
+  else if (__builtin_expect (PTHREAD_MUTEX_TYPE (mutex)
+			      == PTHREAD_MUTEX_RECURSIVE_NP, 1))
     {
       /* Recursive mutex.  */
       if (mutex->__data.__owner != THREAD_GETMEM (THREAD_SELF, tid))
@@ -66,7 +76,8 @@ __pthread_mutex_unlock_usercnt (mutex, decr)
 	return 0;
       goto normal;
     }
-  else if (__builtin_expect (type == PTHREAD_MUTEX_ADAPTIVE_NP, 1))
+  else if (__builtin_expect (PTHREAD_MUTEX_TYPE (mutex)
+			      == PTHREAD_MUTEX_ADAPTIVE_NP, 1))
     goto normal;
   else
     {
@@ -85,6 +96,7 @@ internal_function
 __pthread_mutex_unlock_full (pthread_mutex_t *mutex, int decr)
 {
   int newowner = 0;
+  int private;
 
   switch (PTHREAD_MUTEX_TYPE (mutex))
     {
@@ -131,6 +143,9 @@ __pthread_mutex_unlock_full (pthread_mutex_t *mutex, int decr)
       /* Remove mutex from the list.  */
       THREAD_SETMEM (THREAD_SELF, robust_head.list_op_pending,
 		     &mutex->__data.__list.__next);
+      /* We must set op_pending before we dequeue the mutex.  Also see
+	 comments at ENQUEUE_MUTEX.  */
+      __asm ("" ::: "memory");
       DEQUEUE_MUTEX (mutex);
 
       mutex->__data.__owner = newowner;
@@ -138,10 +153,23 @@ __pthread_mutex_unlock_full (pthread_mutex_t *mutex, int decr)
 	/* One less user.  */
 	--mutex->__data.__nusers;
 
-      /* Unlock.  */
-      lll_robust_unlock (mutex->__data.__lock,
-			 PTHREAD_ROBUST_MUTEX_PSHARED (mutex));
+      /* Unlock by setting the lock to 0 (not acquired); if the lock had
+	 FUTEX_WAITERS set previously, then wake any waiters.
+         The unlock operation must be the last access to the mutex to not
+         violate the mutex destruction requirements (see __lll_unlock).  */
+      private = PTHREAD_ROBUST_MUTEX_PSHARED (mutex);
+      if (__glibc_unlikely ((atomic_exchange_rel (&mutex->__data.__lock, 0)
+			     & FUTEX_WAITERS) != 0))
+	lll_futex_wake (&mutex->__data.__lock, 1, private);
 
+      /* We must clear op_pending after we release the mutex.
+	 FIXME However, this violates the mutex destruction requirements
+	 because another thread could acquire the mutex, destroy it, and
+	 reuse the memory for something else; then, if this thread crashes,
+	 and the memory happens to have a value equal to the TID, the kernel
+	 will believe it is still related to the mutex (which has been
+	 destroyed already) and will modify some other random object.  */
+      __asm ("" ::: "memory");
       THREAD_SETMEM (THREAD_SELF, robust_head.list_op_pending, NULL);
       break;
 
@@ -206,6 +234,9 @@ __pthread_mutex_unlock_full (pthread_mutex_t *mutex, int decr)
 	  THREAD_SETMEM (THREAD_SELF, robust_head.list_op_pending,
 			 (void *) (((uintptr_t) &mutex->__data.__list.__next)
 				   | 1));
+	  /* We must set op_pending before we dequeue the mutex.  Also see
+	     comments at ENQUEUE_MUTEX.  */
+	  __asm ("" ::: "memory");
 	  DEQUEUE_MUTEX (mutex);
 	}
 
@@ -222,14 +253,17 @@ __pthread_mutex_unlock_full (pthread_mutex_t *mutex, int decr)
 								  tid)))
 	{
 	  int robust = mutex->__data.__kind & PTHREAD_MUTEX_ROBUST_NORMAL_NP;
-	  int private = (robust
-			 ? PTHREAD_ROBUST_MUTEX_PSHARED (mutex)
-			 : PTHREAD_MUTEX_PSHARED (mutex));
+	  private = (robust
+		     ? PTHREAD_ROBUST_MUTEX_PSHARED (mutex)
+		     : PTHREAD_MUTEX_PSHARED (mutex));
 	  INTERNAL_SYSCALL_DECL (__err);
 	  INTERNAL_SYSCALL (futex, __err, 2, &mutex->__data.__lock,
 			    __lll_private_flag (FUTEX_UNLOCK_PI, private));
 	}
 
+      /* This happens after the kernel releases the mutex but violates the
+	 mutex destruction requirements; see comments in the code handling
+	 PTHREAD_MUTEX_ROBUST_NORMAL_NP.  */
       THREAD_SETMEM (THREAD_SELF, robust_head.list_op_pending, NULL);
       break;
 
@@ -291,8 +325,7 @@ __pthread_mutex_unlock_full (pthread_mutex_t *mutex, int decr)
 
 
 int
-__pthread_mutex_unlock (mutex)
-     pthread_mutex_t *mutex;
+__pthread_mutex_unlock (pthread_mutex_t *mutex)
 {
   return __pthread_mutex_unlock_usercnt (mutex, 1);
 }

@@ -22,18 +22,14 @@
 
 #include <sysdep.h>
 #include <sys/syscall.h>
-#include <bp-checks.h>
 
 /* Perform user-defined atomical operation of array of semaphores.  */
 
 int
-semtimedop (semid, sops, nsops, timeout)
-     int semid;
-     struct sembuf *sops;
-     size_t nsops;
-     const struct timespec *timeout;
+semtimedop (int semid, struct sembuf *sops, size_t nsops,
+	    const struct timespec *timeout)
 {
   return INLINE_SYSCALL (ipc, 6, IPCOP_semtimedop,
-			 semid, (int) nsops, 0, CHECK_N (sops, nsops),
+			 semid, (int) nsops, 0, sops,
 			 timeout);
 }

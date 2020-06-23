@@ -23,23 +23,17 @@
 #include <sysdep-cancel.h>
 #include <sys/syscall.h>
 
-#include <bp-checks.h>
-
 int
-__libc_msgsnd (msqid, msgp, msgsz, msgflg)
-     int msqid;
-     const void *msgp;
-     size_t msgsz;
-     int msgflg;
+__libc_msgsnd (int msqid, const void *msgp, size_t msgsz, int msgflg)
 {
   if (SINGLE_THREAD_P)
     return INLINE_SYSCALL (ipc, 5, IPCOP_msgsnd, msqid, msgsz,
-			   msgflg, (void *) CHECK_N (msgp, msgsz));
+			   msgflg, (void *) msgp);
 
   int oldtype = LIBC_CANCEL_ASYNC ();
 
   int result = INLINE_SYSCALL (ipc, 5, IPCOP_msgsnd, msqid, msgsz,
-			       msgflg, (void *) CHECK_N (msgp, msgsz));
+			       msgflg, (void *) msgp);
 
   LIBC_CANCEL_RESET (oldtype);
 

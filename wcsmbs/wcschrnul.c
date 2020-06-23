@@ -17,12 +17,13 @@
 
 #include <wchar.h>
 
+#ifdef WCSCHRNUL
+# define __wcschrnul WCSCHRNUL
+#endif
 
 /* Find the first occurrence of WC in WCS.  */
 wchar_t *
-__wcschrnul (wcs, wc)
-     register const wchar_t *wcs;
-     register const wchar_t wc;
+__wcschrnul (const wchar_t *wcs, const wchar_t wc)
 {
   while (*wcs != L'\0')
     if (*wcs == wc)
@@ -32,4 +33,6 @@ __wcschrnul (wcs, wc)
 
   return (wchar_t *) wcs;
 }
+#ifndef WCSCHRNUL
 weak_alias (__wcschrnul, wcschrnul)
+#endif

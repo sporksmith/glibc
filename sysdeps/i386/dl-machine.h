@@ -25,6 +25,7 @@
 #include <sysdep.h>
 #include <tls.h>
 #include <dl-tlsdesc.h>
+#include <cpu-features.c>
 
 /* Return nonzero iff ELF header is compatible with the running host.  */
 static inline int __attribute__ ((unused))
@@ -144,18 +145,16 @@ elf_machine_runtime_setup (struct link_map *l, int lazy, int profile)
 
 #ifdef IN_DL_RUNTIME
 
-# if !defined PROF && !__BOUNDED_POINTERS__
+# ifndef PROF
 /* We add a declaration of this function here so that in dl-runtime.c
    the ELF_MACHINE_RUNTIME_TRAMPOLINE macro really can pass the parameters
    in registers.
 
    We cannot use this scheme for profiling because the _mcount call
    destroys the passed register information.  */
-/* GKM FIXME: Fix trampoline to pass bounds so we can do
-   without the `__unbounded' qualifier.  */
 #define ARCH_FIXUP_ATTRIBUTE __attribute__ ((regparm (3), stdcall, unused))
 
-extern ElfW(Addr) _dl_fixup (struct link_map *__unbounded l,
+extern ElfW(Addr) _dl_fixup (struct link_map *l,
 			     ElfW(Word) reloc_offset)
      ARCH_FIXUP_ATTRIBUTE;
 extern ElfW(Addr) _dl_profile_fixup (struct link_map *l,
@@ -266,6 +265,8 @@ dl_platform_init (void)
   if (GLRO(dl_platform) != NULL && *GLRO(dl_platform) == '\0')
     /* Avoid an empty string which would disturb us.  */
     GLRO(dl_platform) = NULL;
+
+  init_cpu_features (&GLRO(dl_x86_cpu_features));
 }
 
 static inline Elf32_Addr
@@ -294,6 +295,7 @@ elf_machine_plt_value (struct link_map *map, const Elf32_Rel *reloc,
 /* The i386 never uses Elf32_Rela relocations for the dynamic linker.
    Prelinked libraries may use Elf32_Rela though.  */
 #define ELF_MACHINE_NO_RELA defined RTLD_BOOTSTRAP
+#define ELF_MACHINE_NO_REL 0
 
 #ifdef RESOLVE_MAP
 

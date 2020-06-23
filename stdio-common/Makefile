@@ -57,7 +57,7 @@ tests := tstscanf test_rdwr test-popen tstgetln test-fseek \
 	 bug19 bug19a tst-popen2 scanf13 scanf14 scanf15 bug20 bug21 bug22 \
 	 scanf16 scanf17 tst-setvbuf1 tst-grouping bug23 bug24 \
 	 bug-vfprintf-nargs tst-long-dbl-fphex tst-fphex-wide tst-sprintf3 \
-	 bug25 tst-printf-round
+	 bug25 tst-printf-round bug23-2 bug23-3
 
 test-srcs = tst-unbputc tst-printf
 
@@ -116,13 +116,6 @@ CFLAGS-scanf17.c = -I../libio -I../stdlib -I../wcsmbs -I../time -I../string \
 
 # We know the test has a format string problem.
 CFLAGS-tst-sprintf.c = -Wno-format
-tst-sprintf-ENV = LOCPATH=$(common-objpfx)localedata
-tst-sscanf-ENV = LOCPATH=$(common-objpfx)localedata
-tst-swprintf-ENV = LOCPATH=$(common-objpfx)localedata
-test-vfprintf-ENV = LOCPATH=$(common-objpfx)localedata
-scanf13-ENV = LOCPATH=$(common-objpfx)localedata
-bug14-ENV = LOCPATH=$(common-objpfx)localedata
-tst-grouping-ENV = LOCPATH=$(common-objpfx)localedata
 
 CPPFLAGS += $(libio-mtsafe)
 

@@ -17,7 +17,7 @@
    <http://www.gnu.org/licenses/>.  */
 
 #include <errno.h>
-#include <resolv.h>
+#include <resolv/resolv-internal.h>
 #include <stdio.h>
 #include <string.h>
 #include <arpa/nameser.h>
@@ -41,7 +41,7 @@ __nscd_gethostbyname_r (const char *name, struct hostent *resultbuf,
 {
   request_type reqtype;
 
-  reqtype = (_res.options & RES_USE_INET6) ? GETHOSTBYNAMEv6 : GETHOSTBYNAME;
+  reqtype = res_use_inet6 () ? GETHOSTBYNAMEv6 : GETHOSTBYNAME;
 
   return nscd_gethst_r (name, strlen (name) + 1, reqtype, resultbuf,
 			buffer, buflen, result, h_errnop);
@@ -190,7 +190,7 @@ nscd_gethst_r (const char *key, size_t keylen, request_type type,
 	      goto out;
 	    }
 
-#ifndef _STRING_ARCH_unaligned
+#if !_STRING_ARCH_unaligned
 	  /* The aliases_len array in the mapped database might very
 	     well be unaligned.  We will access it word-wise so on
 	     platforms which do not tolerate unaligned accesses we

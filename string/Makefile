@@ -66,9 +66,6 @@ include ../Rules
 tester-ENV = LANGUAGE=C
 inl-tester-ENV = LANGUAGE=C
 noinl-tester-ENV = LANGUAGE=C
-tst-strxfrm-ENV = LOCPATH=$(common-objpfx)localedata
-tst-strxfrm2-ENV = LOCPATH=$(common-objpfx)localedata
-bug-strcoll1-ENV = LOCPATH=$(common-objpfx)localedata
 CFLAGS-inl-tester.c = -fno-builtin
 CFLAGS-noinl-tester.c = -fno-builtin
 CFLAGS-tst-strlen.c = -fno-builtin
@@ -77,6 +74,14 @@ CFLAGS-test-ffs.c = -fno-builtin
 CFLAGS-tst-inlcall.c = -fno-builtin
 CFLAGS-bug-strstr1.c = -fno-builtin
 CFLAGS-bug-strcasestr1.c = -fno-builtin
+
+# Disable any optimization which might result in function calls to the very
+# same functions we are trying to compile, thus creating an infinite loop.
+CFLAGS-.o += -fno-tree-loop-distribute-patterns
+CFLAGS-.os += -fno-tree-loop-distribute-patterns
+CFLAGS-.op += -fno-tree-loop-distribute-patterns
+CFLAGS-.ob += -fno-tree-loop-distribute-patterns
+CFLAGS-.oS += -fno-tree-loop-distribute-patterns
 
 ifeq ($(run-built-tests),yes)
 tests: $(objpfx)tst-svc.out

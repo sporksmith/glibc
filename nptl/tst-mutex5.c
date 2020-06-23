@@ -22,6 +22,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <sys/time.h>
+#include <config.h>
 
 
 #ifndef TYPE

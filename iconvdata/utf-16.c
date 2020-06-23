@@ -39,6 +39,7 @@
 #define MIN_NEEDED_FROM		2
 #define MAX_NEEDED_FROM		4
 #define MIN_NEEDED_TO		4
+#define ONE_DIRECTION		0
 #define FROM_DIRECTION		(dir == from_utf16)
 #define PREPARE_LOOP \
   enum direction dir = ((struct utf16_data *) step->__data)->dir;	      \
@@ -294,6 +295,12 @@ gconv_end (struct __gconv_step *data)
 	  {								      \
 	    uint16_t u2;						      \
 									      \
+	    if (__glibc_unlikely (u1 >= 0xdc00))			      \
+	      {								      \
+		/* This is no valid first word for a surrogate.  */	      \
+		STANDARD_FROM_LOOP_ERR_HANDLER (2);			      \
+	      }								      \
+									      \
 	    /* It's a surrogate character.  At least the first word says      \
 	       it is.  */						      \
 	    if (__builtin_expect (inptr + 4 > inend, 0))		      \
@@ -328,6 +335,12 @@ gconv_end (struct __gconv_step *data)
 	  }								      \
 	else								      \
 	  {								      \
+	    if (__glibc_unlikely (u1 >= 0xdc00))			      \
+	      {								      \
+		/* This is no valid first word for a surrogate.  */	      \
+		STANDARD_FROM_LOOP_ERR_HANDLER (2);			      \
+	      }								      \
+									      \
 	    /* It's a surrogate character.  At least the first word says      \
 	       it is.  */						      \
 	    if (__builtin_expect (inptr + 4 > inend, 0))		      \

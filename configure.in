@@ -155,6 +155,15 @@ if test "$enable_stackguard_randomize" = yes; then
   AC_DEFINE(ENABLE_STACKGUARD_RANDOMIZE)
 fi
 
+AC_ARG_ENABLE([lock-elision],
+	      AC_HELP_STRING([--enable-lock-elision[=yes/no]],
+			     [Enable lock elision for pthread mutexes by default]),
+	      [enable_lock_elision=$enableval],
+	      [enable_lock_elision=no])
+if test "$enable_lock_elision" = yes ; then
+  AC_DEFINE(ENABLE_LOCK_ELISION)
+fi
+
 dnl Generic infrastructure for drop-in additions to libc.
 AC_ARG_ENABLE([add-ons],
 	      AC_HELP_STRING([--enable-add-ons@<:@=DIRS...@:>@],
@@ -224,6 +233,13 @@ AC_ARG_ENABLE([all-warnings],
 	      [all_warnings=$enableval],
 	      [])
 AC_SUBST(all_warnings)
+
+AC_ARG_ENABLE([werror],
+	      AC_HELP_STRING([--disable-werror],
+			     [do not build with -Werror]),
+	      [enable_werror=$enableval],
+	      [enable_werror=yes])
+AC_SUBST(enable_werror)
 
 AC_ARG_ENABLE([multi-arch],
 	      AC_HELP_STRING([--enable-multi-arch],
@@ -314,6 +330,16 @@ AC_ARG_ENABLE([nscd],
 	       [library functions will not contact the nscd daemon])],
 	      [use_nscd=$enableval],
 	      [use_nscd=yes])
+
+AC_ARG_ENABLE([pt_chown],
+	      [AS_HELP_STRING([--enable-pt_chown],
+	       [Enable building and installing pt_chown])],
+	      [build_pt_chown=$enableval],
+	      [build_pt_chown=no])
+AC_SUBST(build_pt_chown)
+if test $build_pt_chown = yes; then
+  AC_DEFINE(HAVE_PT_CHOWN)
+fi
 
 # The way shlib-versions is used to generate soversions.mk uses a
 # fairly simplistic model for name recognition that can't distinguish
@@ -539,8 +565,8 @@ changequote(,)dnl
 # base_machine, we don't change it.
 test -n "$base_machine" || case "$machine" in
 i[34567]86)	base_machine=i386 machine=i386/$machine ;;
-powerpc)	base_machine=powerpc machine=powerpc/powerpc32 ;;
-powerpc64)	base_machine=powerpc machine=powerpc/powerpc64 ;;
+powerpc64*)	base_machine=powerpc machine=powerpc/powerpc64 ;;
+powerpc*)	base_machine=powerpc machine=powerpc/powerpc32 ;;
 s390)           base_machine=s390 machine=s390/s390-32 ;;
 s390x)          base_machine=s390 machine=s390/s390-64 ;;
 sh3*)		base_machine=sh machine=sh/sh3 ;;
@@ -935,7 +961,7 @@ AC_CHECK_PROG_VER(CC, ${ac_tool_prefix}gcc ${ac_tool_prefix}cc, -v,
   critic_missing="$critic_missing gcc")
 AC_CHECK_PROG_VER(MAKE, gnumake gmake make, --version,
   [GNU Make[^0-9]*\([0-9][0-9.]*\)],
-  [3.79* | 3.[89]*], critic_missing="$critic_missing make")
+  [3.79* | 3.[89]* | [4-9].* | [1-9][0-9]*], critic_missing="$critic_missing make")
 
 AC_CHECK_PROG_VER(MSGFMT, gnumsgfmt gmsgfmt msgfmt, --version,
   [GNU gettext.* \([0-9]*\.[0-9.]*\)],
@@ -1672,6 +1698,13 @@ LIBC_TRY_CC_OPTION([$CFLAGS $CPPFLAGS -Werror -fstack-protector],
 ])
 AC_SUBST(libc_cv_ssp)
 
+AC_CACHE_CHECK(for -fstack-protector-strong, libc_cv_ssp_strong, [dnl
+LIBC_TRY_CC_OPTION([$CFLAGS $CPPFLAGS -Werror -fstack-protector-strong],
+		   [libc_cv_ssp_strong=yes],
+		   [libc_cv_ssp_strong=no])
+])
+AC_SUBST(libc_cv_ssp_strong)
+
 AC_CACHE_CHECK(for -fgnu89-inline, libc_cv_gnu89_inline, [dnl
 cat > conftest.c <<EOF
 int foo;
@@ -1928,6 +1961,24 @@ if test -n "$submachine"; then
 fi
 AC_SUBST(libc_cv_cc_submachine)
 
+AC_CACHE_CHECK(if $CC accepts -fno-tree-loop-distribute-patterns with \
+__attribute__ ((__optimize__)), libc_cv_cc_loop_to_function, [dnl
+cat > conftest.c <<EOF
+void
+__attribute__ ((__optimize__ ("-fno-tree-loop-distribute-patterns")))
+foo (void) {}
+EOF
+libc_cv_cc_loop_to_function=no
+if AC_TRY_COMMAND([${CC-cc} $CFLAGS $CPPFLAGS -c conftest.c])
+then
+  libc_cv_cc_loop_to_function=yes
+fi
+rm -f conftest*])
+if test $libc_cv_cc_loop_to_function = yes; then
+  AC_DEFINE(HAVE_CC_INHIBIT_LOOP_TO_LIBCALL)
+fi
+AC_SUBST(libc_cv_cc_loop_to_function)
+
 dnl Check whether we have the gd library available.
 AC_MSG_CHECKING(for libgd)
 if test "$with_gd" != "no"; then
@@ -2117,6 +2168,7 @@ fi
 AC_SUBST(old_glibc_headers)
 
 AC_SUBST(libc_cv_slibdir)
+AC_SUBST(libc_cv_rtlddir)
 AC_SUBST(libc_cv_localedir)
 AC_SUBST(libc_cv_sysconfdir)
 AC_SUBST(libc_cv_localstatedir)

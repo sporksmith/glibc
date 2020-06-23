@@ -22,7 +22,7 @@ subdir		:= elf
 include ../Makeconfig
 
 headers		= elf.h bits/elfclass.h link.h bits/link.h
-routines	= $(dl-routines) dl-support dl-iteratephdr \
+routines	= $(all-dl-routines) dl-support dl-iteratephdr \
 		  dl-addr enbl-secure dl-profstub \
 		  dl-origin dl-libc dl-sym dl-tsd dl-sysdep
 
@@ -35,6 +35,10 @@ dl-routines	= $(addprefix dl-,load lookup object reloc deps hwcaps \
 ifeq (yes,$(use-ldconfig))
 dl-routines += dl-cache
 endif
+
+# RHEL 7-specific change: Add rudimentary tunables support.
+dl-routines += dl-tunables
+
 all-dl-routines = $(dl-routines) $(sysdep-dl-routines)
 # But they are absent from the shared libc, because that code is in ld.so.
 elide-routines.os = $(all-dl-routines) dl-support enbl-secure dl-origin \
@@ -43,7 +47,7 @@ shared-only-routines += dl-caller
 
 # ld.so uses those routines, plus some special stuff for being the program
 # interpreter and operating independent of libc.
-rtld-routines	:= rtld $(dl-routines) dl-sysdep dl-environ dl-minimal
+rtld-routines	= rtld $(all-dl-routines) dl-sysdep dl-environ dl-minimal
 all-rtld-routines = $(rtld-routines) $(sysdep-rtld-routines)
 
 CFLAGS-dl-runtime.c = -fexceptions -fasynchronous-unwind-tables
@@ -66,7 +70,7 @@ endif
 ifeq (yes,$(build-shared))
 extra-objs	= $(all-rtld-routines:%=%.os) soinit.os sofini.os interp.os
 generated	+= librtld.os dl-allobjs.os ld.so ldd
-install-others	= $(inst_slibdir)/$(rtld-installed-name)
+install-others = $(inst_rtlddir)/$(rtld-installed-name)
 install-bin-script = ldd
 endif
 
@@ -98,7 +102,8 @@ extra-objs += sotruss-lib.os sotruss-lib.so
 install-others += $(inst_auditdir)/sotruss-lib.so
 install-bin-script += sotruss
 generated += sotruss
-CPPFLAGS-sotruss-lib = -DNOT_IN_libc
+libof-sotruss-lib = extramodules
+LDFLAGS-sotruss-lib.so += $(z-now-$(bind-now))
 $(objpfx)sotruss-lib.so: $(objpfx)sotruss-lib.os
 	$(build-module-asneeded)
 $(objpfx)sotruss-lib.so: $(common-objpfx)libc.so $(objpfx)ld.so \
@@ -119,9 +124,11 @@ $(inst_auditdir)/sotruss-lib.so: $(objpfx)sotruss-lib.so $(+force)
 endif
 
 tests = tst-tls1 tst-tls2 tst-tls9 tst-leaks1 \
-	tst-array1 tst-array2 tst-array3 tst-array4 tst-array5
+	tst-array1 tst-array2 tst-array3 tst-array4 tst-array5 \
+	tst-audit11 tst-audit12
 tests-static = tst-tls1-static tst-tls2-static tst-stackguard1-static \
-	       tst-leaks1-static tst-array1-static tst-array5-static
+	       tst-leaks1-static tst-array1-static tst-array5-static \
+	       tst-ptrguard1-static
 ifeq (yes,$(build-shared))
 tests-static += tst-tls9-static
 tst-tls9-static-ENV = \
@@ -142,10 +149,11 @@ tests += loadtest restest1 preloadtest loadfail multiload origtest resolvfail \
 	 tst-dlmodcount tst-dlopenrpath tst-deep1 \
 	 tst-dlmopen1 tst-dlmopen2 tst-dlmopen3 \
 	 unload3 unload4 unload5 unload6 unload7 unload8 tst-global1 order2 \
-	 tst-audit1 tst-audit2 tst-audit8 \
+	 tst-audit1 tst-audit2 tst-audit8 tst-audit9 \
 	 tst-stackguard1 tst-addr1 tst-thrlock \
 	 tst-unique1 tst-unique2 tst-unique3 tst-unique4 \
-	 tst-initorder tst-initorder2 tst-relsort1
+	 tst-initorder tst-initorder2 tst-relsort1 tst-ptrguard1 \
+	 tst-big-note tst-dlopen-tlsmodid
 #	 reldep9
 test-srcs = tst-pathopt
 selinux-enabled := $(shell cat /selinux/enforce 2> /dev/null)
@@ -206,6 +214,7 @@ modules-names = testobj1 testobj2 testobj3 testobj4 testobj5 testobj6 \
 		order2mod1 order2mod2 order2mod3 order2mod4 \
 		tst-unique1mod1 tst-unique1mod2 \
 		tst-unique2mod1 tst-unique2mod2 \
+		tst-auditmod9a tst-auditmod9b \
 		tst-unique3lib tst-unique3lib2 \
 		tst-unique4lib \
 		tst-initordera1 tst-initorderb1 \
@@ -214,7 +223,11 @@ modules-names = testobj1 testobj2 testobj3 testobj4 testobj5 testobj6 \
 		tst-initorder2a tst-initorder2b tst-initorder2c \
 		tst-initorder2d \
 		tst-relsort1mod1 tst-relsort1mod2 tst-array2dep \
-		tst-array5dep
+		tst-array5dep \
+		tst-audit11mod1 tst-audit11mod2 tst-auditmod11 \
+		tst-audit12mod1 tst-audit12mod2 tst-audit12mod3 tst-auditmod12 \
+		tst-big-note-lib
+
 ifeq (yesyes,$(have-fpie)$(build-shared))
 modules-names += tst-piemod1
 tests += tst-pie1
@@ -232,8 +245,8 @@ extra-test-objs += $(addsuffix .os,$(strip $(modules-names)))
 # We need this variable to be sure the test modules get the right CPPFLAGS.
 test-extras += $(modules-names)
 
-# filtmod1.so has a special rule
-modules-names-nobuild := filtmod1
+# filtmod1.so, tst-big-note-lib.so have special rules.
+modules-names-nobuild := filtmod1 tst-big-note-lib
 
 ifneq (no,$(multi-arch))
 tests-static += ifuncmain1static ifuncmain1picstatic \
@@ -339,10 +352,10 @@ $(objpfx)ld.so: $(objpfx)librtld.os $(ld-map)
 	$(READELF) -s $@ \
 	  | $(AWK) '($$7 ~ /^UND(|EF)$$/ && $$1 != "0:" && $$4 != "REGISTER") { print; p=1 } END { exit p != 0 }'
 
-# interp.c exists just to get this string into the libraries.
-CFLAGS-interp.c = -D'RUNTIME_LINKER="$(slibdir)/$(rtld-installed-name)"' \
-		  -DNOT_IN_libc=1
-$(objpfx)interp.os: $(common-objpfx)config.make
+ifeq (yes,$(build-shared))
+# interp.c exists just to get the runtime linker path into libc.so.
+$(objpfx)interp.os: $(common-objpfx)runtime-linker.h
+endif
 
 ifneq (ld.so,$(rtld-installed-name))
 # Make sure ld.so.1 exists in the build directory so we can link
@@ -372,18 +385,19 @@ $(inst_slibdir)/$(rtld-version-installed-name): $(objpfx)ld.so $(+force)
 	$(make-target-directory)
 	$(do-install-program)
 
-$(inst_slibdir)/$(rtld-installed-name): \
+$(inst_rtlddir)/$(rtld-installed-name): \
   $(inst_slibdir)/$(rtld-version-installed-name) \
   $(inst_slibdir)/libc-$(version).so
+	$(make-target-directory)
 	$(make-shlib-link)
 
 # Special target called by parent to install just the dynamic linker.
 .PHONY: ldso_install
-ldso_install: $(inst_slibdir)/$(rtld-installed-name)
+ldso_install: $(inst_rtlddir)/$(rtld-installed-name)
 endif
 
 
-common-ldd-rewrite = -e 's%@RTLD@%$(slibdir)/$(rtld-installed-name)%g' \
+common-ldd-rewrite = -e 's%@RTLD@%$(rtlddir)/$(rtld-installed-name)%g' \
 		     -e 's%@VERSION@%$(version)%g' \
 		     -e 's|@PKGVERSION@|$(PKGVERSION)|g' \
 		     -e 's|@REPORT_BUGS_TO@|$(REPORT_BUGS_TO)|g'
@@ -424,13 +438,25 @@ $(objpfx)pldd: $(pldd-modules:%=$(objpfx)%.o)
 
 SYSCONF-FLAGS := -D'SYSCONFDIR="$(sysconfdir)"'
 CFLAGS-ldconfig.c = $(SYSCONF-FLAGS) -D'LIBDIR="$(libdir)"' \
-		    -D'SLIBDIR="$(slibdir)"' -DIS_IN_ldconfig=1
+		    -D'SLIBDIR="$(slibdir)"'
+libof-ldconfig = ldconfig
 CFLAGS-dl-cache.c = $(SYSCONF-FLAGS)
 CFLAGS-cache.c = $(SYSCONF-FLAGS)
 CFLAGS-rtld.c = $(SYSCONF-FLAGS)
 
-CPPFLAGS-.os += $(if $(filter $(@F),$(patsubst %,%.os,$(all-rtld-routines))),\
-		     -DNOT_IN_libc=1 -DIS_IN_rtld=1 -DIN_LIB=rtld)
+# Disable any optimization which might result in function calls during early
+# dynamic loader startup. We disable -ftree-loop-distribute-patterns which
+# might convert code into calls to functions like memcpy or memset when the PLT
+# is not yet setup.
+CFLAGS-.o += -fno-tree-loop-distribute-patterns
+CFLAGS-.os += -fno-tree-loop-distribute-patterns
+CFLAGS-.op += -fno-tree-loop-distribute-patterns
+CFLAGS-.ob += -fno-tree-loop-distribute-patterns
+CFLAGS-.oS += -fno-tree-loop-distribute-patterns
+
+cpp-srcs-left := $(all-rtld-routines:=.os)
+lib := rtld
+include $(patsubst %,$(..)cppflags-iterator.mk,$(cpp-srcs-left))
 
 test-modules = $(addprefix $(objpfx),$(addsuffix .so,$(strip $(modules-names))))
 generated += $(addsuffix .so,$(strip $(modules-names)))
@@ -564,6 +590,8 @@ unload4mod1.so-no-z-defs = yes
 ifuncmod1.so-no-z-defs = yes
 ifuncmod5.so-no-z-defs = yes
 ifuncmod6.so-no-z-defs = yes
+tst-auditmod9a.so-no-z-defs = yes
+tst-auditmod9b.so-no-z-defs = yes
 
 ifeq ($(build-shared),yes)
 # Build all the modules even when not actually running test programs.
@@ -842,6 +870,7 @@ endif
 ifeq ($(have-z-execstack),yes)
 $(objpfx)tst-execstack: $(libdl)
 $(objpfx)tst-execstack.out: $(objpfx)tst-execstack-mod.so
+CPPFLAGS-tst-execstack.c = -DUSE_PTHREADS=0
 LDFLAGS-tst-execstack = -Wl,-z,noexecstack
 LDFLAGS-tst-execstack-mod = -Wl,-z,execstack
 
@@ -891,7 +920,7 @@ $(objpfx)tst-pie1: $(objpfx)tst-piemod1.so
 ifeq (yes,$(build-shared))
 tests: $(objpfx)check-textrel.out $(objpfx)check-execstack.out
 
-all-built-dso := $(common-objpfx)libc.so \
+all-built-dso := $(common-objpfx)elf/ld.so $(common-objpfx)libc.so \
 		 $(filter-out $(common-objpfx)linkobj/libc.so, \
 			      $(sort $(wildcard $(addprefix $(common-objpfx), \
 							    */lib*.so \
@@ -950,6 +979,7 @@ tests: $(objpfx)check-localplt.out
 
 localplt-built-dso := $(addprefix $(common-objpfx),\
 				  libc.so \
+                                  elf/ld.so \
 				  math/libm.so \
 				  rt/librt.so \
 				  dlfcn/libdl.so \
@@ -996,7 +1026,8 @@ $(objpfx)tst-dlmopen3.out: $(objpfx)tst-dlmopen1mod.so
 $(objpfx)tst-audit1.out: $(objpfx)tst-auditmod1.so
 tst-audit1-ENV = LD_AUDIT=$(objpfx)tst-auditmod1.so
 
-$(objpfx)tst-audit2.out: $(objpfx)tst-auditmod1.so
+$(objpfx)tst-audit2: $(libdl)
+$(objpfx)tst-audit2.out: $(objpfx)tst-auditmod1.so $(objpfx)tst-auditmod9b.so
 tst-audit2-ENV = LD_AUDIT=$(objpfx)tst-auditmod1.so
 
 $(objpfx)tst-audit3: $(objpfx)tst-auditmod3a.so
@@ -1019,6 +1050,10 @@ tst-audit6-ENV = LD_AUDIT=$(objpfx)tst-auditmod6b.so:$(objpfx)tst-auditmod6c.so
 $(objpfx)tst-audit7: $(objpfx)tst-auditmod7a.so
 $(objpfx)tst-audit7.out: $(objpfx)tst-auditmod7b.so
 tst-audit7-ENV = LD_AUDIT=$(objpfx)tst-auditmod7b.so
+
+$(objpfx)tst-audit9: $(libdl)
+$(objpfx)tst-audit9.out: $(objpfx)tst-auditmod9a.so $(objpfx)tst-auditmod9b.so
+tst-audit9-ENV = LD_AUDIT=$(objpfx)tst-auditmod9a.so
 
 $(objpfx)tst-audit8: $(common-objpfx)math/libm.so
 $(objpfx)tst-audit8.out: $(objpfx)tst-auditmod1.so
@@ -1045,6 +1080,12 @@ LDFLAGS-order2mod2.so = $(no-as-needed)
 tst-stackguard1-ARGS = --command "$(host-built-program-cmd) --child"
 tst-stackguard1-static-ARGS = --command "$(objpfx)tst-stackguard1-static --child"
 
+tst-ptrguard1-ARGS = --command "$(host-built-program-cmd) --child"
+# When built statically, the pointer guard interface uses
+# __pointer_chk_guard_local.
+CFLAGS-tst-ptrguard1-static.c = -DPTRGUARD_LOCAL
+tst-ptrguard1-static-ARGS = --command "$(objpfx)tst-ptrguard1-static --child"
+
 $(objpfx)tst-leaks1: $(libdl)
 $(objpfx)tst-leaks1-mem: $(objpfx)tst-leaks1.out
 	$(common-objpfx)malloc/mtrace $(objpfx)tst-leaks1.mtrace > $@
@@ -1059,6 +1100,9 @@ tst-leaks1-static-ENV = MALLOC_TRACE=$(objpfx)tst-leaks1-static.mtrace
 $(objpfx)tst-addr1: $(libdl)
 
 $(objpfx)tst-thrlock: $(libdl) $(shared-thread-library)
+
+$(objpfx)tst-dlopen-tlsmodid: $(libdl) $(shared-thread-library)
+$(objpfx)tst-dlopen-tlsmodid.out: $(objpfx)tst-tls10
 
 CFLAGS-ifuncmain1pic.c += $(pic-ccflag)
 CFLAGS-ifuncmain1picstatic.c += $(pic-ccflag)
@@ -1185,3 +1229,22 @@ $(objpfx)tst-unused-dep.out: $(objpfx)testobj1.so
 	  --library-path $(rpath-link)$(patsubst %,:%,$(sysdep-library-path)) \
 	  $< > $@
 	cmp $@ /dev/null > /dev/null
+
+$(objpfx)tst-audit11.out: $(objpfx)tst-auditmod11.so $(objpfx)tst-audit11mod1.so
+$(objpfx)tst-audit11: $(libdl)
+tst-audit11-ENV = LD_AUDIT=$(objpfx)tst-auditmod11.so
+$(objpfx)tst-audit11mod1.so: $(objpfx)tst-audit11mod2.so
+LDFLAGS-tst-audit11mod2.so = -Wl,--version-script=tst-audit11mod2.map,-soname,tst-audit11mod2.so
+
+$(objpfx)tst-audit12.out: $(objpfx)tst-auditmod12.so $(objpfx)tst-audit12mod1.so $(objpfx)tst-audit12mod3.so
+$(objpfx)tst-audit12: $(libdl)
+tst-audit12-ENV = LD_AUDIT=$(objpfx)tst-auditmod12.so
+$(objpfx)tst-audit12mod1.so: $(objpfx)tst-audit12mod2.so
+LDFLAGS-tst-audit12mod2.so = -Wl,--version-script=tst-audit12mod2.map
+
+$(objpfx)tst-big-note: $(objpfx)tst-big-note-lib.so
+# Avoid creating an ABI tag note, which may come before the
+# artificial, large note in tst-big-note-lib.o and invalidate the
+# test.
+$(objpfx)tst-big-note-lib.so: $(objpfx)tst-big-note-lib.o
+	$(LINK.o) -shared -o $@ $(LDFLAGS.so) $<

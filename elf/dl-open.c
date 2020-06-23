@@ -28,7 +28,6 @@
 #include <sys/param.h>
 #include <bits/libc-lock.h>
 #include <ldsodefs.h>
-#include <bp-sym.h>
 #include <caller.h>
 #include <sysdep-cancel.h>
 #include <tls.h>
@@ -43,7 +42,7 @@ extern ElfW(Addr) _dl_sysdep_start (void **start_argptr,
 						     ElfW(Word) phnum,
 						     ElfW(Addr) *user_entry,
 						     ElfW(auxv_t) *auxv));
-weak_extern (BP_SYM (_dl_sysdep_start))
+weak_extern (_dl_sysdep_start)
 
 extern int __libc_multiple_libcs;	/* Defined in init-first.c.  */
 
@@ -221,7 +220,11 @@ dl_open_worker (void *a)
 	}
     }
 
-  assert (_dl_debug_initialize (0, args->nsid)->r_state == RT_CONSISTENT);
+  /* One might be tempted to assert that we are RT_CONSISTENT at this point, but that
+     may not be true if this is a recursive call to dlopen.
+     TODO: Fix all of the debug state so we end up at RT_CONSISTENT only when the last
+     recursive dlopen completes.  */
+  _dl_debug_initialize (0, args->nsid);
 
   /* Load the named object.  */
   struct link_map *new;
@@ -535,17 +538,7 @@ TLS generation counter wrapped!  Please report this."));
 	  && imap->l_tls_blocksize > 0)
 	{
 	  /* For static TLS we have to allocate the memory here and
-	     now.  This includes allocating memory in the DTV.  But we
-	     cannot change any DTV other than our own.  So, if we
-	     cannot guarantee that there is room in the DTV we don't
-	     even try it and fail the load.
-
-	     XXX We could track the minimum DTV slots allocated in
-	     all threads.  */
-	  if (! RTLD_SINGLE_THREAD_P && imap->l_tls_modid > DTV_SURPLUS)
-	    _dl_signal_error (0, "dlopen", NULL, N_("\
-cannot load any more object with static TLS"));
-
+	     now, but we can delay updating the DTV.  */
 	  imap->l_need_tls_init = 0;
 #ifdef SHARED
 	  /* Update the slot information data for at least the
@@ -747,7 +740,7 @@ _dl_show_scope (struct link_map *l, int from)
   _dl_debug_printf ("\n");
 }
 
-#ifdef IS_IN_rtld
+#if IS_IN (rtld)
 /* Return non-zero if ADDR lies within one of L's segments.  */
 int
 internal_function

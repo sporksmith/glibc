@@ -30,22 +30,10 @@
 
    Systemtap's header defines the macros STAP_PROBE (provider, name) and
    STAP_PROBEn (provider, name, arg1, ..., argn).  For "provider" we paste
-   in the IN_LIB name (libc, libpthread, etc.) automagically.  */
-
-# ifndef NOT_IN_libc
-#  define IN_LIB	libc
-# elif !defined IN_LIB
-/* This is intentionally defined with extra unquoted commas in it so
-   that macro substitution will bomb out when it is used.  We don't
-   just use #error here, so that this header can be included by
-   other headers that use LIBC_PROBE inside their own macros.  We
-   only want such headers to fail to compile if those macros are
-   actually used in a context where IN_LIB has not been defined.  */
-#  define IN_LIB	,,,missing -DIN_LIB=... -- not extra-lib.mk?,,,
-# endif
+   in MODULE_NAME (libc, libpthread, etc.) automagically.  */
 
 # define LIBC_PROBE(name, n, ...)	\
-  LIBC_PROBE_1 (IN_LIB, name, n, ## __VA_ARGS__)
+  LIBC_PROBE_1 (MODULE_NAME, name, n, ## __VA_ARGS__)
 
 # define LIBC_PROBE_1(lib, name, n, ...) \
   STAP_PROBE##n (lib, name, ## __VA_ARGS__)
@@ -53,7 +41,7 @@
 # define STAP_PROBE0		STAP_PROBE
 
 # define LIBC_PROBE_ASM(name, template) \
-  STAP_PROBE_ASM (IN_LIB, name, template)
+  STAP_PROBE_ASM (MODULE_NAME, name, template)
 
 # define LIBC_PROBE_ASM_OPERANDS STAP_PROBE_ASM_OPERANDS
 
@@ -61,13 +49,14 @@
 
 # ifndef __ASSEMBLER__
 /* Evaluate all the arguments and verify that N matches their number.  */
-#  define LIBC_PROBE(name, n, ...)					      \
-  do {									      \
-    _Bool __libc_probe_args[] = { 0, ## __VA_ARGS__ };			      \
-    _Bool __libc_probe_verify_n[(sizeof __libc_probe_args / sizeof (_Bool))   \
-                                == n + 1 ? 1 : -1];			      \
-    (void) __libc_probe_verify_n;					      \
-  } while (0)
+#define LIBC_PROBE(name, n, ...) STAP_PROBE##n (__VA_ARGS__)
+
+#define STAP_PROBE0()
+#define STAP_PROBE1(a1)
+#define STAP_PROBE2(a1, a2)
+#define STAP_PROBE3(a1, a2, a3)
+#define STAP_PROBE4(a1, a2, a3, a4)
+
 # else
 #  define LIBC_PROBE(name, n, ...)		/* Nothing.  */
 # endif

@@ -169,6 +169,7 @@ __netlink_request (struct netlink_handle *h, int type)
 	};
 
       read_len = TEMP_FAILURE_RETRY (__recvmsg (h->fd, &msg, 0));
+      __netlink_assert_response (h->fd, read_len);
       if (read_len < 0)
 	goto out_fail;
 
@@ -367,6 +368,14 @@ getifaddrs_internal (struct ifaddrs **ifap)
 	  /* Check if the message is what we want.  */
 	  if ((pid_t) nlh->nlmsg_pid != nh.pid || nlh->nlmsg_seq != nlp->seq)
 	    continue;
+
+	  /* If the dump got interrupted, we can't rely on the results
+	     so try again. */
+	  if (nlh->nlmsg_flags & NLM_F_DUMP_INTR)
+	    {
+	      result = -EAGAIN;
+	      goto exit_free;
+	    }
 
 	  if (nlh->nlmsg_type == NLMSG_DONE)
 	    break;		/* ok */

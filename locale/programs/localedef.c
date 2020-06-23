@@ -202,7 +202,7 @@ main (int argc, char *argv[])
 
   /* Handle a few special cases.  */
   if (list_archive)
-    show_archive_content (verbose);
+    show_archive_content (remaining > 1 ? argv[remaining] : NULL, verbose);
   if (add_to_archive)
     return add_locales_to_archive (argc - remaining, &argv[remaining],
 				   replace_archive);
@@ -491,9 +491,7 @@ construct_output_path (char *path)
    names.  Normalization allows the user to use any of the common
    names.  */
 static const char *
-normalize_codeset (codeset, name_len)
-     const char *codeset;
-     size_t name_len;
+normalize_codeset (const char *codeset, size_t name_len)
 {
   int len = 0;
   int only_digit = 1;

@@ -148,11 +148,17 @@ libdir = $(exec_prefix)/lib
 endif
 inst_libdir = $(install_root)$(libdir)
 
-# Where to install the shared library and dynamic linker.
+# Where to install the shared library.
 ifndef slibdir
 slibdir = $(exec_prefix)/lib
 endif
 inst_slibdir = $(install_root)$(slibdir)
+
+# Where to install the dynamic linker.
+ifndef rtlddir
+rtlddir = $(slibdir)
+endif
+inst_rtlddir = $(install_root)$(rtlddir)
 
 # Prefix to put on files installed in $(libdir).  For libraries `libNAME.a',
 # the prefix is spliced between `lib' and the name, so the linker switch
@@ -378,6 +384,18 @@ LDFLAGS.so += $(hashstyle-LDFLAGS)
 LDFLAGS-rtld += $(hashstyle-LDFLAGS)
 endif
 
+# If lazy relocations are disabled, add the -z now flag.  Use
+# LDFLAGS-lib.so instead of LDFLAGS.so, to avoid adding the flag to
+# test modules.
+ifeq ($(bind-now),yes)
+LDFLAGS-lib.so += -Wl,-z,now
+# Extra flags for dynamically linked non-test main programs.
+link-extra-flags += -Wl,-z,now
+endif
+
+# Additional libraries to link into every test.
+link-extra-libs-tests = $(libsupport)
+
 # Command for linking PIE programs with the C library.
 ifndef +link-pie
 +link-pie = $(CC) -pie -Wl,-O1 -nostdlib -nostartfiles -o $@ \
@@ -389,7 +407,8 @@ ifndef +link-pie
 						    S$(start-installed-name))\
 			  $(+preinit) $(link-extra-libs) \
 			  $(common-objpfx)libc% $(+postinit),$^) \
-	     $(link-extra-libs) $(link-libc) $(+postctorS) $(+postinit)
+	     $(link-extra-libs) $(link-extra-flags) $(link-libc) \
+	     $(+postctorS) $(+postinit)
 endif
 # Command for statically linking programs with the C library.
 ifndef +link-static
@@ -403,8 +422,8 @@ ifndef +link-static
 			   $(common-objpfx)libc% $(+postinit),$^) \
 	      $(link-extra-libs-static)
 +link-static-after-libc = $(+postctorT) $(+postinit)
-+link-static = $(+link-static-before-libc) $(link-libc-static) \
-	       $(+link-static-after-libc)
++link-static = $(+link-static-before-libc) $(link-extra-flags) \
+	       $(link-libc-static) $(+link-static-after-libc)
 +link-static-tests = $(+link-static-before-libc) $(link-libc-static-tests) \
 		     $(+link-static-after-libc)
 endif
@@ -422,7 +441,8 @@ ifeq (yes,$(build-shared))
 			   $(common-objpfx)libc% $(+postinit),$^) \
 	      $(link-extra-libs)
 +link-after-libc = $(+postctor) $(+postinit)
-+link = $(+link-before-libc) $(link-libc) $(+link-after-libc)
++link = $(+link-before-libc) $(link-extra-flags) $(link-libc) \
+	$(+link-after-libc)
 +link-tests = $(+link-before-libc) $(link-libc-tests) $(+link-after-libc)
 else
 +link = $(+link-static)
@@ -443,7 +463,7 @@ ifndef +link-bounded
 endif
 ifndef config-LDFLAGS
 ifeq (yes,$(build-shared))
-config-LDFLAGS = -Wl,-dynamic-linker=$(slibdir)/$(rtld-installed-name)
+config-LDFLAGS = -Wl,-dynamic-linker=$(rtlddir)/$(rtld-installed-name)
 endif
 endif
 ifndef link-libc
@@ -458,7 +478,7 @@ link-libc-before-gnulib = -Wl,-rpath-link=$(rpath-link) \
 link-libc = $(link-libc-before-gnulib) $(gnulib)
 link-libc-tests = $(link-libc-before-gnulib) $(gnulib-tests)
 # This is how to find at build-time things that will be installed there.
-rpath-dirs = math elf dlfcn nss nis rt resolv crypt
+rpath-dirs = math elf dlfcn nss nis rt resolv crypt support
 rpath-link = \
 $(common-objdir):$(subst $(empty) ,:,$(patsubst ../$(subdir),.,$(rpath-dirs:%=$(common-objpfx)%)))
 else
@@ -560,7 +580,6 @@ endif
 # Variants of the two previous definitions for statically linking programs.
 +prectorT = `$(CC) $(sysdep-LDFLAGS) --print-file-name=crtbeginT.o`
 +postctorT = `$(CC) $(sysdep-LDFLAGS) --print-file-name=crtend.o`
-+interp = $(addprefix $(elf-objpfx),interp.os)
 csu-objpfx = $(common-objpfx)csu/
 elf-objpfx = $(common-objpfx)elf/
 
@@ -631,11 +650,15 @@ endif
 
 # Extra flags to pass to GCC.
 ifeq ($(all-warnings),yes)
-+gccwarn := -Wall -Wwrite-strings -Winline -Wcast-qual -Wbad-function-cast -Wmissing-noreturn -Wmissing-prototypes -Wmissing-declarations -Wcomment -Wcomments -Wtrigraphs -Wsign-compare -Wfloat-equal -Wmultichar
++gccwarn := -Wall -Wwrite-strings -Wcast-qual -Wbad-function-cast -Wmissing-noreturn -Wmissing-prototypes -Wmissing-declarations -Wcomment -Wcomments -Wtrigraphs -Wsign-compare -Wfloat-equal -Wmultichar
 else
-+gccwarn := -Wall -Wwrite-strings -Winline
++gccwarn := -Wall -Wwrite-strings
 endif
-+gccwarn-c = -Wstrict-prototypes
++gccwarn += -Wundef
+ifeq ($(enable-werror),yes)
++gccwarn += -Werror
+endif
++gccwarn-c = -Wstrict-prototypes -Wold-style-definition
 
 # We do not depend on the address of constants in different files to be
 # actually different, so allow the compiler to merge them all.
@@ -724,12 +747,32 @@ endif	# $(+cflags) == ""
 # of many little headers in the include directory.
 libio-include = -I$(..)libio
 
+# List of non-library modules that we build.
+built-modules = iconvprogs iconvdata ldconfig lddlibc4 libmemusage \
+		libSegFault libpcprofile librpcsvc locale-programs \
+		memusagestat nonlib nscd extramodules libnldbl libsupport
+
+in-module = $(subst -,_,$(firstword $(libof-$(basename $(@F))) \
+				    $(libof-$(<F)) \
+				    $(libof-$(@F)) \
+				    libc))
+
+module-cppflags-real = -include $(common-objpfx)libc-modules.h \
+		       -DMODULE_NAME=$(in-module)
+
+# We don't need libc-modules.h and the MODULE_NAME definition for .v.i
+# files.  These targets don't (and will likely never need to) use the IS_IN
+# facility.  In fact, shlib-versions should not use it because that will
+# create a circular dependency as libc-modules.h is generated from
+# shlib-versions.
+module-cppflags = $(if $(filter %.v.i,$(@F)),,$(module-cppflags-real))
+
 # These are the variables that the implicit compilation rules use.
 # Note that we can't use -std=* in CPPFLAGS, because it overrides
 # the implicit -lang-asm and breaks cpp behavior for .S files--notably
 # it causes cpp to stop predefining __ASSEMBLER__.
 CPPFLAGS = $(CPPUNDEFS) $(CPPFLAGS-config) $($(subdir)-CPPFLAGS) \
-	   $(+includes) $(defines) \
+	   $(+includes) $(defines) $(module-cppflags) \
 	   -include $(..)include/libc-symbols.h $(sysdep-CPPFLAGS) \
 	   $(CPPFLAGS-$(suffix $@)) \
 	   $(foreach lib,$(libof-$(basename $(@F))) \
@@ -911,6 +954,23 @@ endif
 postclean-generated += soversions.mk soversions.i \
 		       shlib-versions.v shlib-versions.v.i
 
+before-compile += $(common-objpfx)libc-modules.h
+ifeq ($(soversions.mk-done),t)
+# Generate a header with macro definitions for use with the IS_IN macro.
+# These are the possible values for the MODULE_NAME macro defined when building
+# sources, to identify which module the translation unit is going to be built
+# into.
+$(common-objpfx)libc-modules.h: $(common-objpfx)libc-modules.stmp; @:
+$(common-objpfx)libc-modules.stmp: $(..)scripts/gen-libc-modules.awk \
+				   $(common-objpfx)soversions.i
+	$(AWK) -v buildlist="$(subst -,_,$(built-modules))" -f $^ > ${@:stmp=T}
+	$(move-if-change) ${@:stmp=T} ${@:stmp=h}
+	touch $@
+
+endif
+
+common-generated += libc-modules.h libc-modules.stmp
+
 # Generate the header containing the names of all shared libraries.
 # We use a stamp file to avoid unnecessary recompilations.
 before-compile += $(common-objpfx)gnu/lib-names.h
@@ -980,6 +1040,12 @@ else
 libm = $(common-objpfx)math/libm.a
 endif
 
+ifeq ($(build-shared),yes)
+libsupport = $(common-objpfx)support/libsupport_nonshared.a
+else
+libsupport = $(common-objpfx)support/libsupport.a
+endif
+
 # These are the subdirectories containing the library source.  The order
 # is more or less arbitrary.  The sorting step will take care of the
 # dependencies.
@@ -987,7 +1053,7 @@ all-subdirs = csu assert ctype locale intl catgets math setjmp signal	    \
 	      stdlib stdio-common libio malloc string wcsmbs time dirent    \
 	      grp pwd posix io termios resource misc socket sysvipc gmon    \
 	      gnulib iconv iconvdata wctype manual shadow gshadow po argp   \
-	      crypt nss localedata timezone rt conform debug		    \
+	      crypt nss localedata timezone rt conform debug support	    \
 	      $(add-on-subdirs) dlfcn elf
 
 ifndef avoid-generated

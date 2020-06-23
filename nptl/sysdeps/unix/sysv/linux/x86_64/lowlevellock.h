@@ -72,7 +72,7 @@
 
 #ifndef __ASSEMBLER__
 
-#if !defined NOT_IN_libc || defined IS_IN_rtld
+#if IS_IN (libc) || IS_IN (rtld)
 /* In libc.so or ld.so all futexes are private.  */
 # ifdef __ASSUME_PRIVATE_FUTEX
 #  define __lll_private_flag(fl, private) \
@@ -223,19 +223,34 @@ LLL_STUB_UNWIND_INFO_END
     __status;								      \
   })
 
+#define lll_futex_timed_wait_bitset(futexp, val, timespec, clockbit, private) \
+  ({									      \
+    INTERNAL_SYSCALL_DECL (__err);					      \
+    long int __ret;							      \
+    int __op = FUTEX_WAIT_BITSET | clockbit;				      \
+									      \
+    __ret = INTERNAL_SYSCALL (futex, __err, 6, (futexp),		      \
+			      __lll_private_flag (__op, private),	      \
+			      (val), (timespec), NULL /* Unused.  */, 	      \
+			      FUTEX_BITSET_MATCH_ANY);			      \
+    (__glibc_unlikely (INTERNAL_SYSCALL_ERROR_P (__ret, __err))		      \
+	? -INTERNAL_SYSCALL_ERRNO (__ret, __err) : 0);			      \
+  })
+
 
 #define lll_futex_wake(futex, nr, private) \
-  do {									      \
-    int __ignore;							      \
+  ({									      \
+    int __status;							      \
     register __typeof (nr) _nr __asm ("edx") = (nr);			      \
     LIBC_PROBE (lll_futex_wake, 3, futex, nr, private);                       \
     __asm __volatile ("syscall"						      \
-		      : "=a" (__ignore)					      \
+		      : "=a" (__status)					      \
 		      : "0" (SYS_futex), "D" (futex),			      \
 			"S" (__lll_private_flag (FUTEX_WAKE, private)),	      \
 			"d" (_nr)					      \
 		      : "memory", "cc", "r10", "r11", "cx");		      \
-  } while (0)
+    __status;								      \
+  })
 
 
 /* NB: in the lll_trylock macro we simply return the value in %eax
@@ -243,7 +258,7 @@ LLL_STUB_UNWIND_INFO_END
    value is zero.  In case the operation failed, the cmpxchg instruction
    has loaded the current value of the memory work which is guaranteed
    to be nonzero.  */
-#if defined NOT_IN_libc || defined UP
+#if !IS_IN (libc) || defined UP
 # define __lll_trylock_asm LOCK_INSTR "cmpxchgl %2, %1"
 #else
 # define __lll_trylock_asm "cmpl $0, __libc_multiple_threads(%%rip)\n\t"      \
@@ -280,7 +295,7 @@ LLL_STUB_UNWIND_INFO_END
 		       : "memory");					      \
      ret; })
 
-#if defined NOT_IN_libc || defined UP
+#if !IS_IN (libc) || defined UP
 # define __lll_lock_asm_start LOCK_INSTR "cmpxchgl %4, %2\n\t"		      \
 			      "jnz 1f\n\t"
 #else
@@ -334,28 +349,6 @@ LLL_STUB_UNWIND_INFO_END
 			   : "cx", "r11", "cc", "memory");		      \
     })									      \
 
-#define lll_robust_lock(futex, id, private) \
-  ({ int result, ignore1, ignore2;					      \
-    __asm __volatile (LOCK_INSTR "cmpxchgl %4, %2\n\t"			      \
-		      "jnz 1f\n\t"					      \
-		      ".subsection 1\n\t"				      \
-		      ".type _L_robust_lock_%=, @function\n"		      \
-		      "_L_robust_lock_%=:\n"				      \
-		      "1:\tlea %2, %%" RDI_LP "\n"			      \
-		      "2:\tsub $128, %%" RSP_LP "\n"			      \
-		      "3:\tcallq __lll_robust_lock_wait\n"		      \
-		      "4:\tadd $128, %%" RSP_LP "\n"			      \
-		      "5:\tjmp 24f\n"					      \
-		      "6:\t.size _L_robust_lock_%=, 6b-1b\n\t"		      \
-		      ".previous\n"					      \
-		      LLL_STUB_UNWIND_INFO_5				      \
-		      "24:"						      \
-		      : "=S" (ignore1), "=D" (ignore2), "=m" (futex),	      \
-			"=a" (result)					      \
-		      : "1" (id), "m" (futex), "3" (0), "0" (private)	      \
-		      : "cx", "r11", "cc", "memory");			      \
-    result; })
-
 #define lll_cond_lock(futex, private) \
   (void)								      \
     ({ int ignore1, ignore2, ignore3;					      \
@@ -378,29 +371,6 @@ LLL_STUB_UNWIND_INFO_END
 			 : "1" (2), "m" (futex), "3" (0), "0" (private)	      \
 			 : "cx", "r11", "cc", "memory");		      \
     })
-
-#define lll_robust_cond_lock(futex, id, private) \
-  ({ int result, ignore1, ignore2;					      \
-    __asm __volatile (LOCK_INSTR "cmpxchgl %4, %2\n\t"			      \
-		      "jnz 1f\n\t"					      \
-		      ".subsection 1\n\t"				      \
-		      ".type _L_robust_cond_lock_%=, @function\n"	      \
-		      "_L_robust_cond_lock_%=:\n"			      \
-		      "1:\tlea %2, %%" RDI_LP "\n"			      \
-		      "2:\tsub $128, %%" RSP_LP "\n"			      \
-		      "3:\tcallq __lll_robust_lock_wait\n"		      \
-		      "4:\tadd $128, %%" RSP_LP "\n"			      \
-		      "5:\tjmp 24f\n"					      \
-		      "6:\t.size _L_robust_cond_lock_%=, 6b-1b\n\t"	      \
-		      ".previous\n"					      \
-		      LLL_STUB_UNWIND_INFO_5				      \
-		      "24:"						      \
-		      : "=S" (ignore1), "=D" (ignore2), "=m" (futex),	      \
-			"=a" (result)					      \
-		      : "1" (id | FUTEX_WAITERS), "m" (futex), "3" (0),	      \
-			"0" (private)					      \
-		      : "cx", "r11", "cc", "memory");			      \
-    result; })
 
 #define lll_timedlock(futex, timeout, private) \
   ({ int result, ignore1, ignore2, ignore3;				      \
@@ -426,31 +396,14 @@ LLL_STUB_UNWIND_INFO_END
 		       : "memory", "cx", "cc", "r10", "r11");		      \
      result; })
 
-#define lll_robust_timedlock(futex, timeout, id, private) \
-  ({ int result, ignore1, ignore2, ignore3;				      \
-     __asm __volatile (LOCK_INSTR "cmpxchgl %1, %4\n\t"			      \
-		       "jnz 1f\n\t"					      \
-		       ".subsection 1\n\t"				      \
-		       ".type _L_robust_timedlock_%=, @function\n"	      \
-		       "_L_robust_timedlock_%=:\n"			      \
-		       "1:\tlea %4, %%" RDI_LP "\n"			      \
-		       "0:\tmov %8, %%" RDX_LP "\n"			      \
-		       "2:\tsub $128, %%" RSP_LP "\n"			      \
-		       "3:\tcallq __lll_robust_timedlock_wait\n"	      \
-		       "4:\tadd $128, %%" RSP_LP "\n"			      \
-		       "5:\tjmp 24f\n"					      \
-		       "6:\t.size _L_robust_timedlock_%=, 6b-1b\n\t"	      \
-		       ".previous\n"					      \
-		       LLL_STUB_UNWIND_INFO_6				      \
-		       "24:"						      \
-		       : "=a" (result), "=D" (ignore1), "=S" (ignore2),       \
-			 "=&d" (ignore3), "=m" (futex)			      \
-		       : "0" (0), "1" (id), "m" (futex), "m" (timeout),	      \
-			 "2" (private)					      \
-		       : "memory", "cx", "cc", "r10", "r11");		      \
-     result; })
+extern int __lll_timedlock_elision (int *futex, short *adapt_count,
+					 const struct timespec *timeout,
+					 int private) attribute_hidden;
 
-#if defined NOT_IN_libc || defined UP
+#define lll_timedlock_elision(futex, adapt_count, timeout, private)	\
+  __lll_timedlock_elision(&(futex), &(adapt_count), timeout, private)
+
+#if !IS_IN (libc) || defined UP
 # define __lll_unlock_asm_start LOCK_INSTR "decl %0\n\t"		      \
 				"jne 1f\n\t"
 #else
@@ -501,31 +454,6 @@ LLL_STUB_UNWIND_INFO_END
 			   : "m" (futex), "S" (private)			      \
 			   : "ax", "cx", "r11", "cc", "memory");	      \
     })
-
-#define lll_robust_unlock(futex, private) \
-  do									      \
-    {									      \
-      int ignore;							      \
-      __asm __volatile (LOCK_INSTR "andl %2, %0\n\t"			      \
-			"jne 1f\n\t"					      \
-			".subsection 1\n\t"				      \
-			".type _L_robust_unlock_%=, @function\n"	      \
-			"_L_robust_unlock_%=:\n"			      \
-			"1:\tlea %0, %%" RDI_LP "\n"			      \
-			"2:\tsub $128, %%" RSP_LP "\n"			      \
-			"3:\tcallq __lll_unlock_wake\n"			      \
-			"4:\tadd $128, %%" RSP_LP "\n"			      \
-			"5:\tjmp 24f\n"					      \
-			"6:\t.size _L_robust_unlock_%=, 6b-1b\n\t"	      \
-			".previous\n"					      \
-			LLL_STUB_UNWIND_INFO_5				      \
-			"24:"						      \
-			: "=m" (futex), "=&D" (ignore)			      \
-			: "i" (FUTEX_WAITERS), "m" (futex),		      \
-			  "S" (private)					      \
-			: "ax", "cx", "r11", "cc", "memory");		      \
-    }									      \
-  while (0)
 
 #define lll_robust_dead(futex, private) \
   do									      \
@@ -595,6 +523,22 @@ extern int __lll_timedwait_tid (int *tid, const struct timespec *abstime)
 	  __result = __lll_timedwait_tid (&tid, abstime);		      \
       }									      \
     __result; })
+
+extern int __lll_lock_elision (int *futex, short *adapt_count, int private)
+  attribute_hidden;
+
+extern int __lll_unlock_elision (int *lock, int private)
+  attribute_hidden;
+
+extern int __lll_trylock_elision (int *lock, short *adapt_count)
+  attribute_hidden;
+
+#define lll_lock_elision(futex, adapt_count, private) \
+  __lll_lock_elision (&(futex), &(adapt_count), private)
+#define lll_unlock_elision(futex, private) \
+  __lll_unlock_elision (&(futex), private)
+#define lll_trylock_elision(futex, adapt_count) \
+  __lll_trylock_elision (&(futex), &(adapt_count))
 
 #endif  /* !__ASSEMBLER__ */
 

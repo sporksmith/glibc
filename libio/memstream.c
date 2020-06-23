@@ -33,7 +33,7 @@ static int _IO_mem_sync (_IO_FILE* fp) __THROW;
 static void _IO_mem_finish (_IO_FILE* fp, int) __THROW;
 
 
-static const struct _IO_jump_t _IO_mem_jumps =
+static const struct _IO_jump_t _IO_mem_jumps libio_vtable =
 {
   JUMP_INIT_DUMMY,
   JUMP_INIT (finish, _IO_mem_finish),
@@ -61,9 +61,7 @@ static const struct _IO_jump_t _IO_mem_jumps =
    necessary.  *BUFLOC and *SIZELOC are updated with the buffer's location
    and the number of characters written on fflush or fclose.  */
 _IO_FILE *
-open_memstream (bufloc, sizeloc)
-     char **bufloc;
-     _IO_size_t *sizeloc;
+open_memstream (char **bufloc, _IO_size_t *sizeloc)
 {
   struct locked_FILE
   {
@@ -85,12 +83,12 @@ open_memstream (bufloc, sizeloc)
   buf = calloc (1, _IO_BUFSIZ);
   if (buf == NULL)
     return NULL;
-  _IO_init (&new_f->fp._sf._sbf._f, 0);
+  _IO_init_internal (&new_f->fp._sf._sbf._f, 0);
   _IO_JUMPS ((struct _IO_FILE_plus *) &new_f->fp._sf._sbf) = &_IO_mem_jumps;
   _IO_str_init_static_internal (&new_f->fp._sf, buf, _IO_BUFSIZ, buf);
   new_f->fp._sf._sbf._f._flags &= ~_IO_USER_BUF;
-  new_f->fp._sf._s._allocate_buffer = (_IO_alloc_type) malloc;
-  new_f->fp._sf._s._free_buffer = (_IO_free_type) free;
+  new_f->fp._sf._s._allocate_buffer_unused = (_IO_alloc_type) malloc;
+  new_f->fp._sf._s._free_buffer_unused = (_IO_free_type) free;
 
   new_f->fp.bufloc = bufloc;
   new_f->fp.sizeloc = sizeloc;
@@ -101,8 +99,7 @@ libc_hidden_def (open_memstream)
 
 
 static int
-_IO_mem_sync (fp)
-     _IO_FILE* fp;
+_IO_mem_sync (_IO_FILE *fp)
 {
   struct _IO_FILE_memstream *mp = (struct _IO_FILE_memstream *) fp;
 
@@ -122,9 +119,7 @@ _IO_mem_sync (fp)
 
 
 static void
-_IO_mem_finish (fp, dummy)
-     _IO_FILE* fp;
-     int dummy;
+_IO_mem_finish (_IO_FILE *fp, int dummy)
 {
   struct _IO_FILE_memstream *mp = (struct _IO_FILE_memstream *) fp;
 

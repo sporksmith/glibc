@@ -21,9 +21,9 @@
 #define _DL_PROCINFO_H	1
 #include <ldsodefs.h>
 
-#define _DL_HWCAP_COUNT 10
+#define _DL_HWCAP_COUNT 15
 
-#define _DL_PLATFORMS_COUNT	5
+#define _DL_PLATFORMS_COUNT	8
 
 /* The kernel provides up to 32 capability bits with elf_hwcap.  */
 #define _DL_FIRST_PLATFORM	32
@@ -50,13 +50,17 @@ enum
   HWCAP_S390_ETF3EH = 1 << 8,
   HWCAP_S390_HIGH_GPRS = 1 << 9,
   HWCAP_S390_TE = 1 << 10,
+  HWCAP_S390_VX = 1 << 11,
+  HWCAP_S390_VXD = 1 << 12,
+  HWCAP_S390_VXE = 1 << 13,
+  HWCAP_S390_GS = 1 << 14,
 };
 
 #define HWCAP_IMPORTANT (HWCAP_S390_ZARCH | HWCAP_S390_LDISP \
 			  | HWCAP_S390_EIMM | HWCAP_S390_DFP)
 
 /* We cannot provide a general printing function.  */
-#define _dl_procinfo(word) -1
+#define _dl_procinfo(type, word) -1
 
 static inline const char *
 __attribute__ ((unused))

@@ -30,9 +30,7 @@
 
 
 int
-pthread_getattr_np (thread_id, attr)
-     pthread_t thread_id;
-     pthread_attr_t *attr;
+pthread_getattr_np (pthread_t thread_id, pthread_attr_t *attr)
 {
   struct pthread *thread = (struct pthread *) thread_id;
   struct pthread_attr *iattr = (struct pthread_attr *) attr;
@@ -59,8 +57,11 @@ pthread_getattr_np (thread_id, attr)
   /* The sizes are subject to alignment.  */
   if (__builtin_expect (thread->stackblock != NULL, 1))
     {
-      iattr->stacksize = thread->stackblock_size;
-      iattr->stackaddr = (char *) thread->stackblock + iattr->stacksize;
+      /* The stack size reported to the user should not include the
+	 guard size.  */
+      iattr->stacksize = thread->stackblock_size - thread->guardsize;
+      iattr->stackaddr = (char *) thread->stackblock
+       			 + thread->stackblock_size;
     }
   else
     {

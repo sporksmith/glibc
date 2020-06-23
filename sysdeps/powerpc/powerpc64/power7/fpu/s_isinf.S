@@ -38,9 +38,8 @@ EALIGN (__isinf, 4, 0)
 
 	stfd    fp1,-16(r1)   /* Transfer FP to GPR's.  */
 	ori	2,2,0	      /* Force a new dispatch group.  */
-	lhz	r4,-16(r1)    /* Fetch the upper portion of the high word of
-			      the FP value (where the exponent and sign bits
-			      are).  */
+	lhz	r4,-16+HISHORT(r1)  /* Fetch the upper 16 bits of the FP value
+				    (biased exponent and sign bit).  */
 	cmpwi	cr7,r4,0x7ff0 /* r4 == 0x7ff0?  */
 	li	r3,1
 	beqlr   cr7	      /* EQ means INF, otherwise -INF.  */
@@ -62,7 +61,7 @@ strong_alias (__isinf, __isinfl)
 weak_alias (__isinf, isinfl)
 #endif
 
-#ifndef IS_IN_libm
+#if !IS_IN (libm)
 # if LONG_DOUBLE_COMPAT(libc, GLIBC_2_0)
 compat_symbol (libc, __isinf, __isinfl, GLIBC_2_0);
 compat_symbol (libc, isinf, isinfl, GLIBC_2_0);

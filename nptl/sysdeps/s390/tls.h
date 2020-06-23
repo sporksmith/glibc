@@ -73,9 +73,6 @@ typedef struct
 /* Get system call information.  */
 # include <sysdep.h>
 
-/* Get the thread descriptor definition.  */
-# include <nptl/descr.h>
-
 /* This is the size of the initial TCB.  Can't be just sizeof (tcbhead_t),
    because NPTL getpid, __libc_alloca_cutoff etc. need (almost) the whole
    struct pthread even when not linked with -lpthread.  */
@@ -93,6 +90,10 @@ typedef struct
 /* The TCB can have any size and the memory following the address the
    thread pointer points to is unspecified.  Allocate the TCB there.  */
 # define TLS_TCB_AT_TP	1
+# define TLS_DTV_AT_TP	0
+
+/* Get the thread descriptor definition.  */
+# include <nptl/descr.h>
 
 
 /* Install the dtv pointer.  The pointer passed is to the element with
@@ -169,7 +170,7 @@ typedef struct
    use stack_guard as pointer_guard.  */
 #define THREAD_GET_POINTER_GUARD() \
   THREAD_GETMEM (THREAD_SELF, header.stack_guard)
-#define THREAD_SET_POINTER_GUARD(value)
+#define THREAD_SET_POINTER_GUARD(value)	((void) (value))
 #define THREAD_COPY_POINTER_GUARD(descr)
 
 /* Get and set the global scope generation counter in struct pthread.  */

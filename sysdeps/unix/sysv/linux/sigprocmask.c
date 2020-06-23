@@ -22,17 +22,13 @@
 
 #include <sysdep.h>
 #include <sys/syscall.h>
-#include <bp-checks.h>
 
 #include <kernel-features.h>
 
 
 /* Get and/or change the set of blocked signals.  */
 int
-__sigprocmask (how, set, oset)
-     int how;
-     const sigset_t *set;
-     sigset_t *oset;
+__sigprocmask (int how, const sigset_t *set, sigset_t *oset)
 {
 #ifdef SIGCANCEL
   sigset_t local_newmask;
@@ -55,7 +51,6 @@ __sigprocmask (how, set, oset)
     }
 #endif
 
-  return INLINE_SYSCALL (rt_sigprocmask, 4, how, CHECK_SIGSET_NULL_OK (set),
-			 CHECK_SIGSET_NULL_OK (oset), _NSIG / 8);
+  return INLINE_SYSCALL (rt_sigprocmask, 4, how, set, oset, _NSIG / 8);
 }
 weak_alias (__sigprocmask, sigprocmask)

@@ -19,7 +19,6 @@
 
 #include <fenv_libc.h>
 #include <fpu_control.h>
-#include <bp-sym.h>
 
 #define _FPU_MASK_ALL (_FPU_MASK_ZM | _FPU_MASK_OM | _FPU_MASK_UM | _FPU_MASK_XM | _FPU_MASK_IM)
 
@@ -36,14 +35,14 @@ __fesetenv (const fenv_t *envp)
      exceptions, then unmask SIGFPE in the MSR FE0/FE1 bits.  This will put the
      hardware into "precise mode" and may cause the FPU to run slower on some
      hardware.  */
-  if ((old.l[1] & _FPU_MASK_ALL) == 0 && (new.l[1] & _FPU_MASK_ALL) != 0)
+  if ((old.l & _FPU_MASK_ALL) == 0 && (new.l & _FPU_MASK_ALL) != 0)
     (void)__fe_nomask_env ();
   
   /* If the old env had any enabled exceptions and the new env has no enabled
      exceptions, then mask SIGFPE in the MSR FE0/FE1 bits.  This may allow the
      FPU to run faster because it always takes the default action and can not 
      generate SIGFPE. */
-  if ((old.l[1] & _FPU_MASK_ALL) != 0 && (new.l[1] & _FPU_MASK_ALL) == 0)
+  if ((old.l & _FPU_MASK_ALL) != 0 && (new.l & _FPU_MASK_ALL) == 0)
     (void)__fe_mask_env ();
     
   fesetenv_register (*envp);
@@ -55,8 +54,8 @@ __fesetenv (const fenv_t *envp)
 #include <shlib-compat.h>
 #if SHLIB_COMPAT (libm, GLIBC_2_1, GLIBC_2_2)
 strong_alias (__fesetenv, __old_fesetenv)
-compat_symbol (libm, BP_SYM (__old_fesetenv), BP_SYM (fesetenv), GLIBC_2_1);
+compat_symbol (libm, __old_fesetenv, fesetenv, GLIBC_2_1);
 #endif
 
 libm_hidden_ver (__fesetenv, fesetenv)
-versioned_symbol (libm, BP_SYM (__fesetenv), BP_SYM (fesetenv), GLIBC_2_2);
+versioned_symbol (libm, __fesetenv, fesetenv, GLIBC_2_2);

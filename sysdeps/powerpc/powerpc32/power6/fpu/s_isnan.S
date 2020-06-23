@@ -27,8 +27,8 @@ EALIGN (__isnan, 4, 0)
 	ori	r1,r1,0
 	stfd	fp1,24(r1)	/* copy FPR to GPR */
 	ori	r1,r1,0
-	lwz	r4,24(r1)
-	lwz	r5,28(r1)
+	lwz	r4,24+HIWORD(r1)
+	lwz	r5,24+LOWORD(r1)
 	lis	r0,0x7ff0	/* const long r0 0x7ff00000 00000000 */
 	clrlwi	r4,r4,1		/* x = fabs(x) */
 	cmpw	cr7,r4,r0	/* if (fabs(x) =< inf) */
@@ -52,7 +52,7 @@ strong_alias (__isnan, __isnanl)
 weak_alias (__isnan, isnanl)
 #endif
 
-#ifndef IS_IN_libm
+#if !IS_IN (libm)
 # if LONG_DOUBLE_COMPAT(libc, GLIBC_2_0)
 compat_symbol (libc, __isnan, __isnanl, GLIBC_2_0);
 compat_symbol (libc, isnan, isnanl, GLIBC_2_0);

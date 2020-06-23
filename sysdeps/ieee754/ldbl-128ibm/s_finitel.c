@@ -29,14 +29,18 @@ static char rcsid[] = "$NetBSD: $";
 int
 ___finitel (long double x)
 {
-	int64_t hx;
-	GET_LDOUBLE_MSW64(hx,x);
-	return (int)((u_int64_t)((hx&0x7fffffffffffffffLL)
-				 -0x7ff0000000000000LL)>>63);
+  uint64_t hx;
+  double xhi;
+
+  xhi = ldbl_high (x);
+  EXTRACT_WORDS64 (hx, xhi);
+  hx &= 0x7fffffffffffffffLL;
+  hx -= 0x7ff0000000000000LL;
+  return hx >> 63;
 }
 hidden_ver (___finitel, __finitel)
 weak_alias (___finitel, ____finitel)
-#ifdef IS_IN_libm
+#if IS_IN (libm)
 long_double_symbol (libm, ____finitel, finitel);
 long_double_symbol (libm, ___finitel, __finitel);
 #else

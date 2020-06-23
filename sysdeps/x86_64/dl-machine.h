@@ -26,6 +26,7 @@
 #include <sysdep.h>
 #include <tls.h>
 #include <dl-tlsdesc.h>
+#include <cpu-features.c>
 
 /* Return nonzero iff ELF header is compatible with the running host.  */
 static inline int __attribute__ ((unused))
@@ -65,8 +66,12 @@ static inline int __attribute__ ((unused, always_inline))
 elf_machine_runtime_setup (struct link_map *l, int lazy, int profile)
 {
   Elf64_Addr *got;
-  extern void _dl_runtime_resolve (ElfW(Word)) attribute_hidden;
-  extern void _dl_runtime_profile (ElfW(Word)) attribute_hidden;
+  extern void _dl_runtime_resolve_fxsave (ElfW(Word)) attribute_hidden;
+  extern void _dl_runtime_resolve_xsave (ElfW(Word)) attribute_hidden;
+  extern void _dl_runtime_resolve_xsavec (ElfW(Word)) attribute_hidden;
+  extern void _dl_runtime_profile_sse (ElfW(Word)) attribute_hidden;
+  extern void _dl_runtime_profile_avx (ElfW(Word)) attribute_hidden;
+  extern void _dl_runtime_profile_avx512 (ElfW(Word)) attribute_hidden;
 
   if (l->l_info[DT_JMPREL] && lazy)
     {
@@ -94,7 +99,12 @@ elf_machine_runtime_setup (struct link_map *l, int lazy, int profile)
 	 end in this function.  */
       if (__builtin_expect (profile, 0))
 	{
-	  *(ElfW(Addr) *) (got + 2) = (ElfW(Addr)) &_dl_runtime_profile;
+	  if (HAS_ARCH_FEATURE (AVX512F_Usable))
+	    *(ElfW(Addr) *) (got + 2) = (ElfW(Addr)) &_dl_runtime_profile_avx512;
+	  else if (HAS_ARCH_FEATURE (AVX_Usable))
+	    *(ElfW(Addr) *) (got + 2) = (ElfW(Addr)) &_dl_runtime_profile_avx;
+	  else
+	    *(ElfW(Addr) *) (got + 2) = (ElfW(Addr)) &_dl_runtime_profile_sse;
 
 	  if (GLRO(dl_profile) != NULL
 	      && _dl_name_match_p (GLRO(dl_profile), l))
@@ -103,9 +113,19 @@ elf_machine_runtime_setup (struct link_map *l, int lazy, int profile)
 	    GL(dl_profile_map) = l;
 	}
       else
-	/* This function will get called to fix up the GOT entry indicated by
-	   the offset on the stack, and then jump to the resolved address.  */
-	*(ElfW(Addr) *) (got + 2) = (ElfW(Addr)) &_dl_runtime_resolve;
+	{
+	  /* This function will get called to fix up the GOT entry
+	     indicated by the offset on the stack, and then jump to
+	     the resolved address.  */
+	  if (GLRO(dl_x86_cpu_features).xsave_state_size != 0)
+	    *(ElfW(Addr) *) (got + 2)
+	      = (HAS_ARCH_FEATURE (XSAVEC_Usable)
+		 ? (ElfW(Addr)) &_dl_runtime_resolve_xsavec
+		 : (ElfW(Addr)) &_dl_runtime_resolve_xsave);
+	  else
+	    *(ElfW(Addr) *) (got + 2)
+	      = (ElfW(Addr)) &_dl_runtime_resolve_fxsave;
+	}
     }
 
   if (l->l_info[ADDRIDX (DT_TLSDESC_GOT)] && lazy)
@@ -189,6 +209,7 @@ _dl_start_user:\n\
 
 /* The x86-64 never uses Elf64_Rel/Elf32_Rel relocations.  */
 #define ELF_MACHINE_NO_REL 1
+#define ELF_MACHINE_NO_RELA 0
 
 /* We define an initialization function.  This is called very early in
    _dl_sysdep_start.  */
@@ -200,6 +221,8 @@ dl_platform_init (void)
   if (GLRO(dl_platform) != NULL && *GLRO(dl_platform) == '\0')
     /* Avoid an empty string which would disturb us.  */
     GLRO(dl_platform) = NULL;
+
+  init_cpu_features (&GLRO(dl_x86_cpu_features));
 }
 
 static inline ElfW(Addr)

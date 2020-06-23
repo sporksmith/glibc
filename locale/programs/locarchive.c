@@ -197,6 +197,7 @@ create_archive (const char *archivefname, struct locarhandle *ah)
 	     _("cannot change mode of new locale archive"));
     }
 
+  ah->fname = NULL;
   ah->fd = fd;
   ah->addr = p;
   ah->mmaped = total;
@@ -252,9 +253,9 @@ oldlocrecentcmp (const void *a, const void *b)
 /* forward decls for below */
 static uint32_t add_locale (struct locarhandle *ah, const char *name,
 			    locale_data_t data, bool replace);
-static void add_alias (struct locarhandle *ah, const char *alias,
-		       bool replace, const char *oldname,
-		       uint32_t *locrec_offset_p);
+void add_alias (struct locarhandle *ah, const char *alias,
+		bool replace, const char *oldname,
+		uint32_t *locrec_offset_p);
 
 
 static bool
@@ -519,11 +520,19 @@ open_archive (struct locarhandle *ah, bool readonly)
   struct locarhead head;
   int retry = 0;
   size_t prefix_len = output_prefix ? strlen (output_prefix) : 0;
-  char archivefname[prefix_len + sizeof (ARCHIVE_NAME)];
+  char fname[prefix_len + sizeof (ARCHIVE_NAME)];
+  const char *archivefname = ah->fname;
+  bool defaultfname = false;
 
-  if (output_prefix)
-    memcpy (archivefname, output_prefix, prefix_len);
-  strcpy (archivefname + prefix_len, ARCHIVE_NAME);
+  /* If ah has a non-NULL fname open that otherwise open the default.  */
+  if (archivefname == NULL)
+    {
+      defaultfname = true;
+      archivefname = fname;
+      if (output_prefix)
+        memcpy (fname, output_prefix, prefix_len);
+      strcpy (fname + prefix_len, ARCHIVE_NAME);
+    }
 
   while (1)
     {
@@ -531,8 +540,11 @@ open_archive (struct locarhandle *ah, bool readonly)
       fd = open64 (archivefname, readonly ? O_RDONLY : O_RDWR);
       if (fd == -1)
 	{
-	  /* Maybe the file does not yet exist.  */
-	  if (errno == ENOENT)
+	  /* Maybe the file does not yet exist? If we are opening
+	     the default locale archive we ignore the failure and
+	     list an empty archive, otherwise we print an error
+	     and exit.  */
+	  if (errno == ENOENT && defaultfname)
 	    {
 	      if (readonly)
 		{
@@ -635,7 +647,7 @@ close_archive (struct locarhandle *ah)
 #include "../../intl/explodename.c"
 #include "../../intl/l10nflist.c"
 
-static struct namehashent *
+struct namehashent *
 insert_name (struct locarhandle *ah,
 	     const char *name, size_t name_len, bool replace)
 {
@@ -693,7 +705,7 @@ insert_name (struct locarhandle *ah,
   return &namehashtab[idx];
 }
 
-static void
+void
 add_alias (struct locarhandle *ah, const char *alias, bool replace,
 	   const char *oldname, uint32_t *locrec_offset_p)
 {
@@ -1047,11 +1059,8 @@ add_locale (struct locarhandle *ah,
    of the files if necessary.  Add all the names, possibly overwriting
    old files.  */
 int
-add_locale_to_archive (ah, name, data, replace)
-     struct locarhandle *ah;
-     const char *name;
-     locale_data_t data;
-     bool replace;
+add_locale_to_archive (struct locarhandle *ah, const char *name,
+		       locale_data_t data, bool replace)
 {
   char *normalized_name = NULL;
   uint32_t locrec_offset;
@@ -1248,16 +1257,14 @@ add_locale_to_archive (ah, name, data, replace)
 
 
 int
-add_locales_to_archive (nlist, list, replace)
-     size_t nlist;
-     char *list[];
-     bool replace;
+add_locales_to_archive (size_t nlist, char *list[], bool replace)
 {
   struct locarhandle ah;
   int result = 0;
 
   /* Open the archive.  This call never returns if we cannot
      successfully open the archive.  */
+  ah.fname = NULL;
   open_archive (&ah, false);
 
   while (nlist-- > 0)
@@ -1447,9 +1454,7 @@ add_locales_to_archive (nlist, list, replace)
 
 
 int
-delete_locales_from_archive (nlist, list)
-     size_t nlist;
-     char *list[];
+delete_locales_from_archive (size_t nlist, char *list[])
 {
   struct locarhandle ah;
   struct locarhead *head;
@@ -1457,6 +1462,7 @@ delete_locales_from_archive (nlist, list)
 
   /* Open the archive.  This call never returns if we cannot
      successfully open the archive.  */
+  ah.fname = NULL;
   open_archive (&ah, false);
 
   head = ah.addr;
@@ -1545,7 +1551,7 @@ dataentcmp (const void *a, const void *b)
 
 
 void
-show_archive_content (int verbose)
+show_archive_content (char *fname, int verbose)
 {
   struct locarhandle ah;
   struct locarhead *head;
@@ -1555,6 +1561,7 @@ show_archive_content (int verbose)
 
   /* Open the archive.  This call never returns if we cannot
      successfully open the archive.  */
+  ah.fname = fname;
   open_archive (&ah, true);
 
   head = ah.addr;

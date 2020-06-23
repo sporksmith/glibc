@@ -32,10 +32,7 @@
 #include "strfile.h"
 
 int
-_IO_vasprintf (result_ptr, format, args)
-     char **result_ptr;
-     const char *format;
-     _IO_va_list args;
+_IO_vasprintf (char **result_ptr, const char *format, _IO_va_list args)
 {
   /* Initial size of the buffer to be used.  Will be doubled each time an
      overflow occurs.  */
@@ -57,8 +54,8 @@ _IO_vasprintf (result_ptr, format, args)
   _IO_JUMPS (&sf._sbf) = &_IO_str_jumps;
   _IO_str_init_static_internal (&sf, string, init_string_size, string);
   sf._sbf._f._flags &= ~_IO_USER_BUF;
-  sf._s._allocate_buffer = (_IO_alloc_type) malloc;
-  sf._s._free_buffer = (_IO_free_type) free;
+  sf._s._allocate_buffer_unused = (_IO_alloc_type) malloc;
+  sf._s._free_buffer_unused = (_IO_free_type) free;
   ret = _IO_vfprintf (&sf._sbf._f, format, args);
   if (ret < 0)
     {

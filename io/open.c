@@ -22,14 +22,11 @@
 #include <stddef.h>
 #include <stdio.h>
 
-extern char **__libc_argv attribute_hidden;
 
-/* Open FILE with access OFLAG.  If OFLAG includes O_CREAT,
+/* Open FILE with access OFLAG.  If O_CREAT or O_TMPFILE is in OFLAG,
    a third argument is the file protection.  */
 int
-__libc_open (file, oflag)
-     const char *file;
-     int oflag;
+__libc_open (const char *file, int oflag)
 {
   int mode;
 
@@ -39,7 +36,7 @@ __libc_open (file, oflag)
       return -1;
     }
 
-  if (oflag & O_CREAT)
+  if (__OPEN_NEEDS_MODE (oflag))
     {
       va_list arg;
       va_start(arg, oflag);
@@ -57,15 +54,6 @@ weak_alias (__libc_open, open)
 
 stub_warning (open)
 
-
-int
-__open_2 (file, oflag)
-     const char *file;
-     int oflag;
-{
-  if (oflag & O_CREAT)
-    __fortify_fail ("invalid open call: O_CREAT without mode");
-
-  return __open (file, oflag);
-}
+/* __open_2 is a generic wrapper that calls __open.
+   So give a stub warning for that symbol too.  */
 stub_warning (__open_2)

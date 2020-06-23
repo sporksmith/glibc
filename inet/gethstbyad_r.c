@@ -1,4 +1,4 @@
-/* Copyright (C) 1996-2000,2002,2007 Free Software Foundation, Inc.
+/* Copyright (C) 1996-2017 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
    Contributed by Ulrich Drepper <drepper@cygnus.com>, 1996.
 
@@ -18,7 +18,7 @@
 
 #include <netdb.h>
 #include <string.h>
-
+#include <resolv/res_hconf.h>
 
 #define LOOKUP_TYPE	struct hostent
 #define FUNCTION_NAME	gethostbyaddr
@@ -27,12 +27,11 @@
 #define ADD_VARIABLES	addr, len, type
 #define NEED_H_ERRNO	1
 #define NEED__RES	1
-#define NEED__RES_HCONF	1
 /* If the addr parameter is the IPv6 unspecified address no query must
    be performed.  */
 #define PREPROCESS \
   if (len == sizeof (struct in6_addr)					      \
-      && __builtin_expect (memcmp (&in6addr_any, addr,			      \
+      && __builtin_expect (memcmp (&__in6addr_any, addr,		      \
 				   sizeof (struct in6_addr)), 1) == 0)	      \
     {									      \
       *h_errnop = HOST_NOT_FOUND;					      \

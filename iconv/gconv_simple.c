@@ -68,6 +68,7 @@ __gconv_btwoc_ascii (struct __gconv_step *step, unsigned char c)
 #define FROM_LOOP		internal_ucs4_loop
 #define TO_LOOP			internal_ucs4_loop /* This is not used.  */
 #define FUNCTION_NAME		__gconv_transform_internal_ucs4
+#define ONE_DIRECTION		0
 
 
 static inline int
@@ -112,7 +113,7 @@ internal_ucs4_loop (struct __gconv_step *step,
   return result;
 }
 
-#ifndef _STRING_ARCH_unaligned
+#if !_STRING_ARCH_unaligned
 static inline int
 __attribute ((always_inline))
 internal_ucs4_loop_unaligned (struct __gconv_step *step,
@@ -222,6 +223,7 @@ internal_ucs4_loop_single (struct __gconv_step *step,
 #define FROM_LOOP		ucs4_internal_loop
 #define TO_LOOP			ucs4_internal_loop /* This is not used.  */
 #define FUNCTION_NAME		__gconv_transform_ucs4_internal
+#define ONE_DIRECTION		0
 
 
 static inline int
@@ -289,7 +291,7 @@ ucs4_internal_loop (struct __gconv_step *step,
   return result;
 }
 
-#ifndef _STRING_ARCH_unaligned
+#if !_STRING_ARCH_unaligned
 static inline int
 __attribute ((always_inline))
 ucs4_internal_loop_unaligned (struct __gconv_step *step,
@@ -433,6 +435,7 @@ ucs4_internal_loop_single (struct __gconv_step *step,
 #define FROM_LOOP		internal_ucs4le_loop
 #define TO_LOOP			internal_ucs4le_loop /* This is not used.  */
 #define FUNCTION_NAME		__gconv_transform_internal_ucs4le
+#define ONE_DIRECTION		0
 
 
 static inline int
@@ -478,7 +481,7 @@ internal_ucs4le_loop (struct __gconv_step *step,
   return result;
 }
 
-#ifndef _STRING_ARCH_unaligned
+#if !_STRING_ARCH_unaligned
 static inline int
 __attribute ((always_inline))
 internal_ucs4le_loop_unaligned (struct __gconv_step *step,
@@ -590,6 +593,7 @@ internal_ucs4le_loop_single (struct __gconv_step *step,
 #define FROM_LOOP		ucs4le_internal_loop
 #define TO_LOOP			ucs4le_internal_loop /* This is not used.  */
 #define FUNCTION_NAME		__gconv_transform_ucs4le_internal
+#define ONE_DIRECTION		0
 
 
 static inline int
@@ -634,6 +638,8 @@ ucs4le_internal_loop (struct __gconv_step *step,
 	      continue;
 	    }
 
+	  *inptrp = inptr;
+	  *outptrp = outptr;
 	  return __GCONV_ILLEGAL_INPUT;
 	}
 
@@ -658,7 +664,7 @@ ucs4le_internal_loop (struct __gconv_step *step,
   return result;
 }
 
-#ifndef _STRING_ARCH_unaligned
+#if !_STRING_ARCH_unaligned
 static inline int
 __attribute ((always_inline))
 ucs4le_internal_loop_unaligned (struct __gconv_step *step,
@@ -886,7 +892,8 @@ ucs4le_internal_loop_single (struct __gconv_step *step,
     if (__builtin_expect (wc < 0x80, 1))				      \
       /* It's an one byte sequence.  */					      \
       *outptr++ = (unsigned char) wc;					      \
-    else if (__builtin_expect (wc <= 0x7fffffff, 1))			      \
+    else if (__builtin_expect (wc <= 0x7fffffff				      \
+			       && (wc < 0xd800 || wc > 0xdfff), 1))	      \
       {									      \
 	size_t step;							      \
 	unsigned char *start;						      \

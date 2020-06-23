@@ -102,7 +102,7 @@ exp_mpn (mp1 ex, mp1 x)
    unsigned int n;
    mp1 xp;
    mp2 tmp;
-   mp_limb_t chk, round;
+   mp_limb_t chk __attribute__ ((unused));
    mp1 tol;
 
    memset (xp, 0, sizeof (mp1));
@@ -120,7 +120,7 @@ exp_mpn (mp1 ex, mp1 x)
        mpn_mul_n (tmp, xp, x, SZ);
        assert(tmp[SZ * 2 - 1] == 0);
        if (n > 0)
-	 round = mpn_divmod_1 (xp, tmp + FRAC / mpbpl, SZ, n);
+	 mpn_divmod_1 (xp, tmp + FRAC / mpbpl, SZ, n);
        chk = mpn_add_n (ex, ex, xp, SZ);
        assert (chk == 0);
        ++n;
@@ -154,8 +154,8 @@ mpn_bitsize(const mp_limb_t *SRC_PTR, mp_size_t SIZE)
   return i * mpbpl + j;
 }
 
-int
-main (void)
+static int
+do_test (void)
 {
   mp1 ex, x, xt, e2, e3;
   int i;
@@ -238,3 +238,6 @@ main (void)
 
   return failures == 0 ? 0 : 1;
 }
+
+#define TEST_FUNCTION do_test ()
+#include "../test-skeleton.c"

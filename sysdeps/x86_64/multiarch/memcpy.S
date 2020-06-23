@@ -25,18 +25,24 @@
 /* Define multiple versions only for the definition in lib and for
    DSO.  In static binaries we need memcpy before the initialization
    happened.  */
-#if defined SHARED && !defined NOT_IN_libc
+#if defined SHARED && IS_IN (libc)
 	.text
 ENTRY(__new_memcpy)
 	.type	__new_memcpy, @gnu_indirect_function
-	cmpl	$0, KIND_OFFSET+__cpu_features(%rip)
-	jne	1f
-	call	__init_cpu_features
+	LOAD_RTLD_GLOBAL_RO_RDX
+#ifdef HAVE_AVX512_ASM_SUPPORT
+	HAS_ARCH_FEATURE (AVX512F_Usable)
+	jz	1f
+	HAS_ARCH_FEATURE (Prefer_No_VZEROUPPER)
+	jz	1f
+	leaq    __memcpy_avx512_no_vzeroupper(%rip), %rax
+	ret
+#endif
 1:	leaq	__memcpy_sse2(%rip), %rax
-	testl	$bit_SSSE3, __cpu_features+CPUID_OFFSET+index_SSSE3(%rip)
+	HAS_CPU_FEATURE (SSSE3)
 	jz	2f
 	leaq	__memcpy_ssse3(%rip), %rax
-	testl	$bit_Fast_Copy_Backward, __cpu_features+FEATURE_OFFSET+index_Fast_Copy_Backward(%rip)
+	HAS_ARCH_FEATURE (Fast_Copy_Backward)
 	jz	2f
 	leaq	__memcpy_ssse3_back(%rip), %rax
 2:	ret

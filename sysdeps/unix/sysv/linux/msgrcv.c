@@ -23,40 +23,33 @@
 #include <sysdep-cancel.h>
 #include <sys/syscall.h>
 
-#include <bp-checks.h>
-
 /* Kludge to work around Linux' restriction of only up to five
    arguments to a system call.  */
 struct ipc_kludge
   {
-    void *__unbounded msgp;
+    void *msgp;
     long int msgtyp;
   };
 
 
 ssize_t
-__libc_msgrcv (msqid, msgp, msgsz, msgtyp, msgflg)
-     int msqid;
-     void *msgp;
-     size_t msgsz;
-     long int msgtyp;
-     int msgflg;
+__libc_msgrcv (int msqid, void *msgp, size_t msgsz, long int msgtyp,
+	       int msgflg)
 {
   /* The problem here is that Linux' calling convention only allows up to
      fives parameters to a system call.  */
   struct ipc_kludge tmp;
 
-  tmp.msgp = CHECK_N (msgp, msgsz);
+  tmp.msgp = msgp;
   tmp.msgtyp = msgtyp;
 
   if (SINGLE_THREAD_P)
-    return INLINE_SYSCALL (ipc, 5, IPCOP_msgrcv, msqid, msgsz, msgflg,
-			   __ptrvalue (&tmp));
+    return INLINE_SYSCALL (ipc, 5, IPCOP_msgrcv, msqid, msgsz, msgflg, &tmp);
 
   int oldtype = LIBC_CANCEL_ASYNC ();
 
   ssize_t result = INLINE_SYSCALL (ipc, 5, IPCOP_msgrcv, msqid, msgsz, msgflg,
-				   __ptrvalue (&tmp));
+				   &tmp);
 
    LIBC_CANCEL_RESET (oldtype);
 

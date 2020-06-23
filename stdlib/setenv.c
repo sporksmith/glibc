@@ -106,14 +106,11 @@ static char **last_environ;
    to reuse values once generated for a `setenv' call since we can never
    free the strings.  */
 int
-__add_to_environ (name, value, combined, replace)
-     const char *name;
-     const char *value;
-     const char *combined;
-     int replace;
+__add_to_environ (const char *name, const char *value, const char *combined,
+		  int replace)
 {
-  register char **ep;
-  register size_t size;
+  char **ep;
+  size_t size;
   const size_t namelen = strlen (name);
   const size_t vallen = value != NULL ? strlen (value) + 1 : 0;
 
@@ -293,10 +290,7 @@ __add_to_environ (name, value, combined, replace)
 }
 
 int
-setenv (name, value, replace)
-     const char *name;
-     const char *value;
-     int replace;
+setenv (const char *name, const char *value, int replace)
 {
   if (name == NULL || *name == '\0' || strchr (name, '=') != NULL)
     {
@@ -308,8 +302,7 @@ setenv (name, value, replace)
 }
 
 int
-unsetenv (name)
-     const char *name;
+unsetenv (const char *name)
 {
   size_t len;
   char **ep;
@@ -349,7 +342,7 @@ unsetenv (name)
    never made it.  Nevertheless the POSIX.9 standard (POSIX bindings
    for Fortran 77) requires this function.  */
 int
-clearenv ()
+clearenv (void)
 {
   LOCK;
 

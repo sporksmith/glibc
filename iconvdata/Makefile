@@ -34,9 +34,9 @@ modules	:= ISO8859-1 ISO8859-2 ISO8859-3 ISO8859-4 ISO8859-5		 \
 	   IBM874 CP737 CP775 ISO-2022-KR HP-TURKISH8 HP-THAI8 HP-GREEK8 \
 	   KOI8-R LATIN-GREEK LATIN-GREEK-1 IBM256 IBM273 IBM277 IBM278	 \
 	   IBM280 IBM281 IBM284 IBM285 IBM290 IBM297 IBM420 IBM424	 \
-	   IBM437 IBM850 IBM851 IBM852 IBM855 IBM857 IBM860 IBM861	 \
-	   IBM862 IBM863 IBM864 IBM865 IBM868 IBM869 IBM875 IBM880	 \
-	   IBM866 CP1258 IBM922 IBM1124 IBM1129 IBM932 IBM943		 \
+	   IBM437 IBM850 IBM851 IBM852 IBM855 IBM857 IBM858 IBM860	 \
+	   IBM861 IBM862 IBM863 IBM864 IBM865 IBM868 IBM869 IBM875	 \
+	   IBM880 IBM866 CP1258 IBM922 IBM1124 IBM1129 IBM932 IBM943	 \
 	   IBM856 IBM930 IBM933 IBM935 IBM937 IBM939 IBM1046		 \
 	   IBM1132 IBM1133 IBM1160 IBM1161 IBM1162 IBM1163 IBM1164	 \
 	   IBM918 IBM1004 IBM1026 CP1125 CP1250 CP1251 CP1252 CP1253	 \
@@ -65,21 +65,20 @@ modules.so := $(addsuffix .so, $(modules))
 
 include ../Makeconfig
 
+ifeq ($(bind-now),yes)
+LDFLAGS.so += -Wl,-z,now
+endif
+
 ifeq (yes,$(build-shared))
 tests = bug-iconv1 bug-iconv2 tst-loading tst-e2big tst-iconv4 bug-iconv4 \
-	tst-iconv6 bug-iconv5 bug-iconv6 tst-iconv7 bug-iconv8 bug-iconv9
+	tst-iconv6 bug-iconv5 bug-iconv6 tst-iconv7 bug-iconv8 bug-iconv9 \
+	bug-iconv10 bug-iconv11 bug-iconv12
 ifeq ($(have-thread-library),yes)
 tests += bug-iconv3
 endif
 
 test-srcs := tst-table-from tst-table-to
-
-bug-iconv6-ENV = LOCPATH=$(common-objpfx)localedata
-tst-iconv7-ENV = LOCPATH=$(common-objpfx)localedata
 endif
-
-# No code here is in libc.so.
-CPPFLAGS += -DNOT_IN_libc
 
 libJIS-routines := jis0201 jis0208 jis0212
 libKSC-routines := ksc5601
@@ -153,11 +152,11 @@ gen-8bit-modules := iso8859-2 iso8859-3 iso8859-4 iso8859-6 iso8859-9 koi-8 \
 gen-8bit-gap-modules := koi8-r latin-greek latin-greek-1 ibm256 ibm273	   \
 			ibm277 ibm278 ibm280 ibm281 ibm284 ibm285 ibm290   \
 			ibm297 ibm420 ibm424 ibm437 ibm850 ibm851 ibm852   \
-			ibm855 ibm857 ibm860 ibm861 ibm862 ibm863 ibm864   \
-			ibm865 ibm868 ibm869 ibm875 ibm880 ibm918 ibm1004  \
-			ibm1026 cp1125 cp1250 cp1251 cp1252 cp1253 cp1254  \
-			cp1256 cp1257 ibm866 iso8859-5 iso8859-7 iso8859-8 \
-			iso8859-10 macintosh iec_p27-1 asmo_449		   \
+			ibm855 ibm857 ibm858 ibm860 ibm861 ibm862 ibm863   \
+			ibm864 ibm865 ibm868 ibm869 ibm875 ibm880 ibm918   \
+			ibm1004 ibm1026 cp1125 cp1250 cp1251 cp1252 cp1253 \
+			cp1254 cp1256 cp1257 ibm866 iso8859-5 iso8859-7    \
+			iso8859-8 iso8859-10 macintosh iec_p27-1 asmo_449  \
 			csn_369103 cwi dec-mcs ecma-cyrillic gost_19768-74 \
 			greek-ccitt greek7 greek7-old inis inis-8	   \
 			inis-cyrillic iso_2033 iso_5427 iso_5427-ext	   \
@@ -214,6 +213,7 @@ $(objpfx)iconv-rules: Makefile
 	$(AWK) 'NR == 1 { \
 		  for (i = 1; i <= NF; i++) { \
 		    printf "%s-routines := %s\n", $$i, tolower($$i); \
+		    printf "libof-%s := iconvdata\n", tolower($$i); \
 		    printf "%s-map := gconv.map\n", $$i; \
 		  } \
 		}; \
@@ -248,7 +248,7 @@ headers: $(addprefix $(objpfx), $(generated-modules:=.h))
 $(addprefix $(inst_gconvdir)/, $(modules.so)): \
     $(inst_gconvdir)/%: $(objpfx)% $(+force)
 	$(do-install-program)
-$(inst_gconvdir)/gconv-modules: gconv-modules $(+force)
+$(inst_gconvdir)/gconv-modules: $(objpfx)gconv-modules $(+force)
 	$(do-install)
 ifeq (no,$(cross-compiling))
 # Update the $(prefix)/lib/gconv/gconv-modules.cache file. This is necessary
@@ -266,6 +266,13 @@ endif
 endif # build-shared = yes
 
 include ../Rules
+
+# Set libof-* for each routine.
+cpp-srcs-left := $(modules) $(generated-modules) $(libJIS-routines) \
+		 $(libKSC-routines) $(libGB-routines) $(libCNS-routines) \
+		 $(libISOIR165-routines) $(libJISX0213-routines)
+lib := iconvdata
+include $(patsubst %,$(..)cppflags-iterator.mk,$(cpp-srcs-left))
 
 ifeq ($(run-built-tests),yes)
 ifeq (yes,$(build-shared))
@@ -289,6 +296,10 @@ $(objpfx)bug-iconv3.out: $(objpfx)gconv-modules \
 			 $(addprefix $(objpfx),$(modules.so))
 $(objpfx)bug-iconv5.out: $(objpfx)gconv-modules \
 			 $(addprefix $(objpfx),$(modules.so))
+$(objpfx)bug-iconv10.out: $(objpfx)gconv-modules \
+			  $(addprefix $(objpfx),$(modules.so))
+$(objpfx)bug-iconv12.out: $(objpfx)gconv-modules \
+			  $(addprefix $(objpfx),$(modules.so))
 $(objpfx)tst-loading.out: $(objpfx)gconv-modules \
 			  $(addprefix $(objpfx),$(modules.so))
 $(objpfx)tst-iconv4.out: $(objpfx)gconv-modules \
@@ -299,6 +310,7 @@ $(objpfx)tst-iconv7.out: $(objpfx)gconv-modules \
 $(objpfx)iconv-test.out: run-iconv-test.sh $(objpfx)gconv-modules \
 			 $(addprefix $(objpfx),$(modules.so)) \
 			 $(common-objdir)/iconv/iconv_prog TESTS
+	iconv_modules="$(modules)" \
 	$(SHELL) $< $(common-objdir) '$(test-wrapper)' > $@
 
 $(objpfx)tst-tables.out: tst-tables.sh $(objpfx)gconv-modules \
@@ -313,7 +325,5 @@ do-tests-clean common-mostlyclean: tst-tables-clean
 tst-tables-clean:
 	-rm -f $(objpfx)tst-*.table $(objpfx)tst-EUC-TW.irreversible
 
-ifdef objpfx
 $(objpfx)gconv-modules: gconv-modules
-	cp $^ $@
-endif
+	cat $(sysdeps-gconv-modules) $^ > $@

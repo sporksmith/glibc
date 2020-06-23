@@ -18,14 +18,14 @@
 
 #include <wchar.h>
 
+#ifdef WMEMSET
+# define wmemset WMEMSET
+#endif
 
 wchar_t *
-wmemset (s, c, n)
-     wchar_t *s;
-     wchar_t c;
-     size_t n;
+wmemset (wchar_t *s, wchar_t c, size_t n)
 {
-  register wchar_t *wp = s;
+  wchar_t *wp = s;
 
   while (n >= 4)
     {

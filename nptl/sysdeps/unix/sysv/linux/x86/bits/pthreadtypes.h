@@ -101,14 +101,24 @@ typedef union
        binary compatibility.  */
     int __kind;
 #ifdef __x86_64__
-    int __spins;
+    short __spins;
+    short __elision;
     __pthread_list_t __list;
 # define __PTHREAD_MUTEX_HAVE_PREV	1
+/* Mutex __spins initializer used by PTHREAD_MUTEX_INITIALIZER.  */
+# define __PTHREAD_SPINS             0, 0
 #else
     unsigned int __nusers;
     __extension__ union
     {
-      int __spins;
+      struct
+      {
+	short __espins;
+	short __elision;
+# define __spins __elision_data.__espins
+# define __elision __elision_data.__elision
+# define __PTHREAD_SPINS         { 0, 0 }
+      } __elision_data;
       __pthread_slist_t __list;
     };
 #endif

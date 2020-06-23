@@ -37,6 +37,7 @@
 #define DEFINE_FINI		0
 #define MIN_NEEDED_FROM		4
 #define MIN_NEEDED_TO		4
+#define ONE_DIRECTION		0
 #define FROM_DIRECTION		(dir == from_utf32)
 #define PREPARE_LOOP \
   enum direction dir = ((struct utf32_data *) step->__data)->dir;	      \
@@ -238,7 +239,8 @@ gconv_end (struct __gconv_step *data)
     if (swap)								      \
       u1 = bswap_32 (u1);						      \
 									      \
-    if (__builtin_expect (u1 >= 0x110000, 0))				      \
+    if (__builtin_expect (u1 >= 0x110000				      \
+			  || (u1 >= 0xd800 && u1 < 0xe000), 0))		      \
       {									      \
 	/* This is illegal.  */						      \
 	STANDARD_FROM_LOOP_ERR_HANDLER (4);				      \

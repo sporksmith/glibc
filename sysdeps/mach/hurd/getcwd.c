@@ -46,7 +46,7 @@ _hurd_canonicalize_directory_name_internal (file_t thisdir,
   mach_port_t rootid, thisid, rootdevid, thisdevid;
   ino64_t rootino, thisino;
   char *file_name;
-  register char *file_namep;
+  char *file_namep;
   file_t parent;
   char *dirbuf = NULL;
   unsigned int dirbufsize = 0;
@@ -285,10 +285,8 @@ _hurd_canonicalize_directory_name_internal (file_t thisdir,
 }
 
 char *
-__canonicalize_directory_name_internal (thisdir, buf, size)
-     const char *thisdir;
-     char *buf;
-     size_t size;
+__canonicalize_directory_name_internal (const char *thisdir, char *buf,
+					size_t size)
 {
   char *result;
   file_t port = __file_name_lookup (thisdir, 0, 0);

@@ -31,6 +31,10 @@ static const struct
 } tests [] =
 {
   {"21:01:10 1999-1-31", "Universal", 0, {10, 1, 21, 31, 0, 99, 0, 0, 0}},
+  {"21:01:10    1999-1-31", "Universal", 0, {10, 1, 21, 31, 0, 99, 0, 0, 0}},
+  {"   21:01:10 1999-1-31", "Universal", 0, {10, 1, 21, 31, 0, 99, 0, 0, 0}},
+  {"21:01:10 1999-1-31   ", "Universal", 0, {10, 1, 21, 31, 0, 99, 0, 0, 0}},
+  {"    21:01:10 1999-1-31   ", "Universal", 0, {10, 1, 21, 31, 0, 99, 0, 0, 0}},
   {"21:01:10 1999-2-28", "Universal", 0, {10, 1, 21, 28, 1, 99, 0, 0, 0}},
   {"16:30:46 2000-2-29", "Universal", 0, {46, 30,16, 29, 1, 100, 0, 0, 0}},
   {"01-08-2000 05:06:07", "Europe/Berlin", 0, {7, 6, 5, 1, 7, 100, 0, 0, 0}}
@@ -72,8 +76,8 @@ report_date_error (int err)
 }
 
 
-int
-main (void)
+static int
+do_test (void)
 {
   int errors = 0;
   size_t i;
@@ -117,3 +121,6 @@ main (void)
     printf ("No errors found.\n");
   return errors != 0;
 }
+
+#define TEST_FUNCTION do_test ()
+#include "../test-skeleton.c"

@@ -31,6 +31,7 @@
 #define CHARSET_NAME	"IBM935//"
 #define FROM_LOOP	from_ibm935
 #define TO_LOOP		to_ibm935
+#define ONE_DIRECTION			0
 #define FROM_LOOP_MIN_NEEDED_FROM	1
 #define FROM_LOOP_MAX_NEEDED_FROM	2
 #define FROM_LOOP_MIN_NEEDED_TO		4
@@ -103,24 +104,14 @@ enum
 									      \
     if (__builtin_expect(ch, 0) == SO)					      \
       {									      \
-	/* Shift OUT, change to DBCS converter.  */			      \
-	if (curcs == db)						      \
-	  {								      \
-	    result = __GCONV_ILLEGAL_INPUT;				      \
-	    break;							      \
-	  }								      \
+	/* Shift OUT, change to DBCS converter (redundant escape okay).  */   \
 	curcs = db;							      \
 	++inptr;							      \
 	continue;							      \
       }									      \
     else if (__builtin_expect (ch, 0) == SI)				      \
       {									      \
-	/* Shift IN, change to SBCS converter.  */			      \
-	if (curcs == sb)						      \
-	  {								      \
-	    result = __GCONV_ILLEGAL_INPUT;				      \
-	    break;							      \
-	  }								      \
+	/* Shift IN, change to SBCS converter (redundant escape okay).  */    \
 	curcs = sb;							      \
 	++inptr;							      \
 	continue;							      \
@@ -161,7 +152,7 @@ enum
 	while (ch > rp2->end)						      \
 	  ++rp2;							      \
 									      \
-	if (__builtin_expect (rp2 == NULL, 0)				      \
+	if (__builtin_expect (rp2->start == 0xffff, 0)			      \
 	    || __builtin_expect (ch < rp2->start, 0)			      \
 	    || (res = __ibm935db_to_ucs4[ch + rp2->idx],		      \
 		__builtin_expect (res, L'\1') == L'\0' && ch != '\0'))	      \
@@ -254,6 +245,7 @@ enum
 		break;							      \
 	      }								      \
 	    *outptr++ = SI;						      \
+	    curcs = sb;							      \
 	  }								      \
 									      \
 	if (__builtin_expect (outptr + 1 > outend, 0))			      \
@@ -262,7 +254,6 @@ enum
 	    break;							      \
 	  }								      \
 	*outptr++ = cp[0];						      \
-	curcs = sb;							      \
       }									      \
 									      \
     /* Now that we wrote the output increment the input pointer.  */	      \

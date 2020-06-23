@@ -18,17 +18,18 @@
 
 #include <wchar.h>
 
+#ifdef WCSSPN
+# define wcsspn WCSSPN
+#endif
 
 /* Return the length of the maximum initial segment
    of WCS which contains only wide-characters in ACCEPT.  */
 size_t
-wcsspn (wcs, accept)
-     const wchar_t *wcs;
-     const wchar_t *accept;
+wcsspn (const wchar_t *wcs, const wchar_t *accept)
 {
-  register const wchar_t *p;
-  register const wchar_t *a;
-  register size_t count = 0;
+  const wchar_t *p;
+  const wchar_t *a;
+  size_t count = 0;
 
   for (p = wcs; *p != L'\0'; ++p)
     {

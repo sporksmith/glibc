@@ -41,10 +41,6 @@
 
 #include <kernel-features.h>
 
-#ifndef attribute_hidden
-# define attribute_hidden
-#endif
-
 #define TRACE_BUFFER_SIZE 512
 
 static FILE *mallstream;
@@ -58,11 +54,10 @@ __ptr_t mallwatch;
 
 /* Old hook values.  */
 static void (*tr_old_free_hook) (__ptr_t ptr, const __ptr_t);
-static __ptr_t (*tr_old_malloc_hook) (__malloc_size_t size, const __ptr_t);
-static __ptr_t (*tr_old_realloc_hook) (__ptr_t ptr, __malloc_size_t size,
+static __ptr_t (*tr_old_malloc_hook) (size_t size, const __ptr_t);
+static __ptr_t (*tr_old_realloc_hook) (__ptr_t ptr, size_t size,
 				       const __ptr_t);
-static __ptr_t (*tr_old_memalign_hook) (__malloc_size_t __alignment,
-					__malloc_size_t __size,
+static __ptr_t (*tr_old_memalign_hook) (size_t __alignment, size_t __size,
 					const __ptr_t);
 
 /* This function is called when the block being alloc'd, realloc'd, or
@@ -73,17 +68,13 @@ static __ptr_t (*tr_old_memalign_hook) (__malloc_size_t __alignment,
 extern void tr_break (void) __THROW;
 libc_hidden_proto (tr_break)
 void
-tr_break ()
+tr_break (void)
 {
 }
 libc_hidden_def (tr_break)
 
-static void tr_where (const __ptr_t, Dl_info *) __THROW internal_function;
-static void
-internal_function
-tr_where (caller, info)
-     const __ptr_t caller;
-     Dl_info *info;
+static void internal_function
+tr_where (const __ptr_t caller, Dl_info *info)
 {
   if (caller != NULL)
     {
@@ -116,7 +107,6 @@ tr_where (caller, info)
     }
 }
 
-
 static Dl_info *
 lock_and_info (const __ptr_t caller, Dl_info *mem)
 {
@@ -130,12 +120,8 @@ lock_and_info (const __ptr_t caller, Dl_info *mem)
   return res;
 }
 
-
-static void tr_freehook (__ptr_t, const __ptr_t) __THROW;
 static void
-tr_freehook (ptr, caller)
-     __ptr_t ptr;
-     const __ptr_t caller;
+tr_freehook (__ptr_t ptr, const __ptr_t caller)
 {
   if (ptr == NULL)
     return;
@@ -160,11 +146,8 @@ tr_freehook (ptr, caller)
   __libc_lock_unlock (lock);
 }
 
-static __ptr_t tr_mallochook (__malloc_size_t, const __ptr_t) __THROW;
 static __ptr_t
-tr_mallochook (size, caller)
-     __malloc_size_t size;
-     const __ptr_t caller;
+tr_mallochook (size_t size, const __ptr_t caller)
 {
   __ptr_t hdr;
 
@@ -190,13 +173,8 @@ tr_mallochook (size, caller)
   return hdr;
 }
 
-static __ptr_t tr_reallochook (__ptr_t, __malloc_size_t, const __ptr_t)
-     __THROW;
 static __ptr_t
-tr_reallochook (ptr, size, caller)
-     __ptr_t ptr;
-     __malloc_size_t size;
-     const __ptr_t caller;
+tr_reallochook (__ptr_t ptr, size_t size, const __ptr_t caller)
 {
   __ptr_t hdr;
 
@@ -238,12 +216,8 @@ tr_reallochook (ptr, size, caller)
   return hdr;
 }
 
-static __ptr_t tr_memalignhook (__malloc_size_t, __malloc_size_t,
-				const __ptr_t) __THROW;
 static __ptr_t
-tr_memalignhook (alignment, size, caller)
-     __malloc_size_t alignment, size;
-     const __ptr_t caller;
+tr_memalignhook (size_t alignment, size_t size, const __ptr_t caller)
 {
   __ptr_t hdr;
 
@@ -272,7 +246,6 @@ tr_memalignhook (alignment, size, caller)
 }
 
 
-
 #ifdef _LIBC
 
 /* This function gets called to make sure all memory the library
@@ -294,7 +267,7 @@ release_libc_mem (void)
    don't forget to set a breakpoint on tr_break!  */
 
 void
-mtrace ()
+mtrace (void)
 {
 #ifdef _LIBC
   static int added_atexit_handler;
@@ -359,7 +332,7 @@ mtrace ()
 }
 
 void
-muntrace ()
+muntrace (void)
 {
   if (mallstream == NULL)
     return;

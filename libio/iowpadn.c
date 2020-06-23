@@ -39,10 +39,7 @@ static wchar_t const zeroes[PADSIZE] =
 };
 
 _IO_ssize_t
-_IO_wpadn (fp, pad, count)
-      _IO_FILE *fp;
-      wint_t pad;
-      _IO_ssize_t count;
+_IO_wpadn (_IO_FILE *fp, wint_t pad, _IO_ssize_t count)
 {
   wchar_t padbuf[PADSIZE];
   const wchar_t *padptr;
@@ -65,7 +62,7 @@ _IO_wpadn (fp, pad, count)
       w = _IO_sputn (fp, (char *) padptr, PADSIZE);
       written += w;
       if (w != PADSIZE)
-	return w == EOF ? w : written;
+	return written;
     }
 
   if (i > 0)

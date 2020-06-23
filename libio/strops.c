@@ -31,11 +31,8 @@
 #include <stdio_ext.h>
 
 void
-_IO_str_init_static_internal (sf, ptr, size, pstart)
-     _IO_strfile *sf;
-     char *ptr;
-     _IO_size_t size;
-     char *pstart;
+_IO_str_init_static_internal (_IO_strfile *sf, char *ptr, _IO_size_t size,
+			      char *pstart)
 {
   _IO_FILE *fp = &sf->_sbf._f;
   char *end;
@@ -64,33 +61,24 @@ _IO_str_init_static_internal (sf, ptr, size, pstart)
       fp->_IO_read_end = end;
     }
   /* A null _allocate_buffer function flags the strfile as being static. */
-  sf->_s._allocate_buffer = (_IO_alloc_type) 0;
+  sf->_s._allocate_buffer_unused = (_IO_alloc_type) 0;
 }
 
 void
-_IO_str_init_static (sf, ptr, size, pstart)
-     _IO_strfile *sf;
-     char *ptr;
-     int size;
-     char *pstart;
+_IO_str_init_static (_IO_strfile *sf, char *ptr, int size, char *pstart)
 {
   return _IO_str_init_static_internal (sf, ptr, size < 0 ? -1 : size, pstart);
 }
 
 void
-_IO_str_init_readonly (sf, ptr, size)
-     _IO_strfile *sf;
-     const char *ptr;
-     int size;
+_IO_str_init_readonly (_IO_strfile *sf, const char *ptr, int size)
 {
   _IO_str_init_static_internal (sf, (char *) ptr, size < 0 ? -1 : size, NULL);
   sf->_sbf._f._IO_file_flags |= _IO_NO_WRITES;
 }
 
 int
-_IO_str_overflow (fp, c)
-     _IO_FILE *fp;
-     int c;
+_IO_str_overflow (_IO_FILE *fp, int c)
 {
   int flush_only = c == EOF;
   _IO_size_t pos;
@@ -115,8 +103,7 @@ _IO_str_overflow (fp, c)
 	  _IO_size_t new_size = 2 * old_blen + 100;
 	  if (new_size < old_blen)
 	    return EOF;
-	  new_buf
-	    = (char *) (*((_IO_strfile *) fp)->_s._allocate_buffer) (new_size);
+	  new_buf = malloc (new_size);
 	  if (new_buf == NULL)
 	    {
 	      /*	  __ferror(fp) = 1; */
@@ -125,7 +112,7 @@ _IO_str_overflow (fp, c)
 	  if (old_buf)
 	    {
 	      memcpy (new_buf, old_buf, old_blen);
-	      (*((_IO_strfile *) fp)->_s._free_buffer) (old_buf);
+	      free (old_buf);
 	      /* Make sure _IO_setb won't try to delete _IO_buf_base. */
 	      fp->_IO_buf_base = NULL;
 	    }
@@ -151,8 +138,7 @@ _IO_str_overflow (fp, c)
 libc_hidden_def (_IO_str_overflow)
 
 int
-_IO_str_underflow (fp)
-     _IO_FILE *fp;
+_IO_str_underflow (_IO_FILE *fp)
 {
   if (fp->_IO_write_ptr > fp->_IO_read_end)
     fp->_IO_read_end = fp->_IO_write_ptr;
@@ -172,8 +158,7 @@ libc_hidden_def (_IO_str_underflow)
 /* The size of the valid part of the buffer.  */
 
 _IO_ssize_t
-_IO_str_count (fp)
-     _IO_FILE *fp;
+_IO_str_count (_IO_FILE *fp)
 {
   return ((fp->_IO_write_ptr > fp->_IO_read_end
 	   ? fp->_IO_write_ptr : fp->_IO_read_end)
@@ -196,15 +181,14 @@ enlarge_userbuf (_IO_FILE *fp, _IO_off64_t offset, int reading)
 
   _IO_size_t newsize = offset + 100;
   char *oldbuf = fp->_IO_buf_base;
-  char *newbuf
-    = (char *) (*((_IO_strfile *) fp)->_s._allocate_buffer) (newsize);
+  char *newbuf = malloc (newsize);
   if (newbuf == NULL)
     return 1;
 
   if (oldbuf != NULL)
     {
       memcpy (newbuf, oldbuf, _IO_blen (fp));
-      (*((_IO_strfile *) fp)->_s._free_buffer) (oldbuf);
+      free (oldbuf);
       /* Make sure _IO_setb won't try to delete
 	 _IO_buf_base. */
       fp->_IO_buf_base = NULL;
@@ -246,11 +230,7 @@ enlarge_userbuf (_IO_FILE *fp, _IO_off64_t offset, int reading)
 
 
 _IO_off64_t
-_IO_str_seekoff (fp, offset, dir, mode)
-     _IO_FILE *fp;
-     _IO_off64_t offset;
-     int dir;
-     int mode;
+_IO_str_seekoff (_IO_FILE *fp, _IO_off64_t offset, int dir, int mode)
 {
   _IO_off64_t new_pos;
 
@@ -323,9 +303,7 @@ _IO_str_seekoff (fp, offset, dir, mode)
 libc_hidden_def (_IO_str_seekoff)
 
 int
-_IO_str_pbackfail (fp, c)
-     _IO_FILE *fp;
-     int c;
+_IO_str_pbackfail (_IO_FILE *fp, int c)
 {
   if ((fp->_flags & _IO_NO_WRITES) && c != EOF)
     return EOF;
@@ -334,18 +312,16 @@ _IO_str_pbackfail (fp, c)
 libc_hidden_def (_IO_str_pbackfail)
 
 void
-_IO_str_finish (fp, dummy)
-     _IO_FILE *fp;
-     int dummy;
+_IO_str_finish (_IO_FILE *fp, int dummy)
 {
   if (fp->_IO_buf_base && !(fp->_flags & _IO_USER_BUF))
-    (((_IO_strfile *) fp)->_s._free_buffer) (fp->_IO_buf_base);
+    free (fp->_IO_buf_base);
   fp->_IO_buf_base = NULL;
 
   _IO_default_finish (fp, 0);
 }
 
-const struct _IO_jump_t _IO_str_jumps =
+const struct _IO_jump_t _IO_str_jumps libio_vtable =
 {
   JUMP_INIT_DUMMY,
   JUMP_INIT(finish, _IO_str_finish),

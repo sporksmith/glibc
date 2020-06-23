@@ -19,6 +19,8 @@
 #ifndef _LOWLEVELLOCK_H
 #define _LOWLEVELLOCK_H	1
 
+#include <stap-probe.h>
+
 #include <time.h>
 #include <sys/param.h>
 #include <bits/pthreadtypes.h>
@@ -50,7 +52,7 @@
 #define LLL_PRIVATE	0
 #define LLL_SHARED	FUTEX_PRIVATE_FLAG
 
-#if !defined NOT_IN_libc || defined IS_IN_rtld
+#if IS_IN (libc) || IS_IN (rtld)
 /* In libc.so or ld.so all futexes are private.  */
 # ifdef __ASSUME_PRIVATE_FUTEX
 #  define __lll_private_flag(fl, private) \
@@ -106,6 +108,7 @@
     INTERNAL_SYSCALL_DECL (__err);					      \
     long int __ret;							      \
 									      \
+    LIBC_PROBE (lll_futex_wake, 3, futexp, nr, private);		      \
     __ret = INTERNAL_SYSCALL (futex, __err, 4, (futexp),		      \
 			      __lll_private_flag (FUTEX_WAKE, private),	      \
 			      (nr), 0);					      \
@@ -322,5 +325,29 @@ extern int __lll_timedwait_tid (int *, const struct timespec *)
       __res = __lll_timedwait_tid (&(tid), (abstime));			      \
     __res;								      \
   })
+
+/* Transactional lock elision definitions.  */
+extern int __lll_timedlock_elision
+  (int *futex, short *adapt_count, const struct timespec *timeout, int private)
+  attribute_hidden;
+
+#define lll_timedlock_elision(futex, adapt_count, timeout, private)	      \
+  __lll_timedlock_elision(&(futex), &(adapt_count), timeout, private)
+
+extern int __lll_lock_elision (int *futex, short *adapt_count, int private)
+  attribute_hidden;
+
+extern int __lll_unlock_elision(int *lock, int private)
+  attribute_hidden;
+
+extern int __lll_trylock_elision(int *lock, short *adapt_count)
+  attribute_hidden;
+
+#define lll_lock_elision(futex, adapt_count, private) \
+  __lll_lock_elision (&(futex), &(adapt_count), private)
+#define lll_unlock_elision(futex, private) \
+  __lll_unlock_elision (&(futex), private)
+#define lll_trylock_elision(futex, adapt_count) \
+  __lll_trylock_elision (&(futex), &(adapt_count))
 
 #endif	/* lowlevellock.h */

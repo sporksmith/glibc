@@ -69,6 +69,8 @@ typedef __socklen_t socklen_t;
 #define	PF_PPPOX	24	/* PPPoX sockets.  */
 #define	PF_WANPIPE	25	/* Wanpipe API sockets.  */
 #define PF_LLC		26	/* Linux LLC.  */
+#define PF_IB		27      /* Native InfiniBand address.  */
+#define PF_MPLS		28      /* MPLS.  */
 #define PF_CAN		29	/* Controller Area Network.  */
 #define PF_TIPC		30	/* TIPC sockets.  */
 #define	PF_BLUETOOTH	31	/* Bluetooth sockets.  */
@@ -80,7 +82,8 @@ typedef __socklen_t socklen_t;
 #define PF_CAIF		37	/* CAIF sockets.  */
 #define PF_ALG		38	/* Algorithm sockets.  */
 #define PF_NFC		39	/* NFC sockets.  */
-#define	PF_MAX		40	/* For now..  */
+#define PF_VSOCK	40	/* vSockets.  */
+#define	PF_MAX		41	/* For now..  */
 
 /* Address families.  */
 #define	AF_UNSPEC	PF_UNSPEC
@@ -113,6 +116,8 @@ typedef __socklen_t socklen_t;
 #define	AF_PPPOX	PF_PPPOX
 #define	AF_WANPIPE	PF_WANPIPE
 #define AF_LLC		PF_LLC
+#define AF_IB		PF_IB
+#define AF_MPLS		PF_MPLS
 #define AF_CAN		PF_CAN
 #define AF_TIPC		PF_TIPC
 #define	AF_BLUETOOTH	PF_BLUETOOTH
@@ -124,6 +129,7 @@ typedef __socklen_t socklen_t;
 #define AF_CAIF		PF_CAIF
 #define AF_ALG		PF_ALG
 #define AF_NFC		PF_NFC
+#define AF_VSOCK	PF_VSOCK
 #define	AF_MAX		PF_MAX
 
 /* Socket level values.  Others are defined in the appropriate headers.
@@ -153,16 +159,16 @@ struct sockaddr
 
 
 /* Structure large enough to hold any socket address (with the historical
-   exception of AF_UNIX).  We reserve 128 bytes.  */
+   exception of AF_UNIX).  */
 #define __ss_aligntype	unsigned long int
-#define _SS_SIZE	128
-#define _SS_PADSIZE	(_SS_SIZE - (2 * sizeof (__ss_aligntype)))
+#define _SS_PADSIZE \
+  (_SS_SIZE - __SOCKADDR_COMMON_SIZE - sizeof (__ss_aligntype))
 
 struct sockaddr_storage
   {
     __SOCKADDR_COMMON (ss_);	/* Address family, etc.  */
-    __ss_aligntype __ss_align;	/* Force desired alignment.  */
     char __ss_padding[_SS_PADSIZE];
+    __ss_aligntype __ss_align;	/* Force desired alignment.  */
   };
 
 
@@ -208,6 +214,8 @@ enum
 #define	MSG_MORE	MSG_MORE
     MSG_WAITFORONE	= 0x10000, /* Wait for at least one packet to return.*/
 #define MSG_WAITFORONE	MSG_WAITFORONE
+    MSG_FASTOPEN	= 0x20000000, /* Send data in TCP SYN.  */
+#define MSG_FASTOPEN	MSG_FASTOPEN
 
     MSG_CMSG_CLOEXEC	= 0x40000000	/* Set close_on_exit for file
 					   descriptor received through

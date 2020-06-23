@@ -21,10 +21,8 @@
 #undef memset
 
 void *
-memset (dstpp, c, len)
-     void *dstpp;
-     int c;
-     size_t len;
+inhibit_loop_to_libcall
+memset (void *dstpp, int c, size_t len)
 {
   long int dstp = (long int) dstpp;
 

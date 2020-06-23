@@ -28,14 +28,18 @@
 # define __stpcpy stpcpy
 #endif
 
+#ifdef STPCPY
+extern __typeof (__stpcpy) STPCPY;
+# undef __stpcpy
+# define __stpcpy STPCPY
+#endif
+
 /* Copy SRC to DEST, returning the address of the terminating '\0' in DEST.  */
 char *
-__stpcpy (dest, src)
-     char *dest;
-     const char *src;
+__stpcpy (char *dest, const char *src)
 {
-  register char *d = dest;
-  register const char *s = src;
+  char *d = dest;
+  const char *s = src;
 
   do
     *d++ = *s;

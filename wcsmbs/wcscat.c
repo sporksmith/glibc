@@ -18,15 +18,16 @@
 
 #include <wchar.h>
 
+#ifdef WCSCAT
+# define __wcscat WCSCAT
+#endif
 
 /* Append SRC on the end of DEST.  */
 wchar_t *
-__wcscat (dest, src)
-     wchar_t *dest;
-     const wchar_t *src;
+__wcscat (wchar_t *dest, const wchar_t *src)
 {
-  register wchar_t *s1 = dest;
-  register const wchar_t *s2 = src;
+  wchar_t *s1 = dest;
+  const wchar_t *s2 = src;
   wchar_t c;
 
   /* Find the end of the string.  */
@@ -47,4 +48,6 @@ __wcscat (dest, src)
 
   return dest;
 }
+#ifndef WCSCAT
 weak_alias (__wcscat, wcscat)
+#endif

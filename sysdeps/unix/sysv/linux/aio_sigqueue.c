@@ -31,10 +31,8 @@
 
 /* Return any pending signal or wait for one for the given time.  */
 int
-__aio_sigqueue (sig, val, caller_pid)
-     int sig;
-     const union sigval val;
-     pid_t caller_pid;
+internal_function
+__aio_sigqueue (int sig, const union sigval val, pid_t caller_pid)
 {
   siginfo_t info;
 
@@ -48,8 +46,7 @@ __aio_sigqueue (sig, val, caller_pid)
   info.si_uid = getuid ();
   info.si_value = val;
 
-  return INLINE_SYSCALL (rt_sigqueueinfo, 3, info.si_pid,
-			 sig, __ptrvalue (&info));
+  return INLINE_SYSCALL (rt_sigqueueinfo, 3, info.si_pid, sig, &info);
 }
 #else
 # include <rt/aio_sigqueue.c>

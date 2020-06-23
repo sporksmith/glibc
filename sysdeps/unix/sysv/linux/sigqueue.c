@@ -26,10 +26,7 @@
 #ifdef __NR_rt_sigqueueinfo
 /* Return any pending signal or wait for one for the given time.  */
 int
-__sigqueue (pid, sig, val)
-     pid_t pid;
-     int sig;
-     const union sigval val;
+__sigqueue (pid_t pid, int sig, const union sigval val)
 {
   siginfo_t info;
 
@@ -43,7 +40,7 @@ __sigqueue (pid, sig, val)
   info.si_uid = __getuid ();
   info.si_value = val;
 
-  return INLINE_SYSCALL (rt_sigqueueinfo, 3, pid, sig, __ptrvalue (&info));
+  return INLINE_SYSCALL (rt_sigqueueinfo, 3, pid, sig, &info);
 }
 weak_alias (__sigqueue, sigqueue)
 #else

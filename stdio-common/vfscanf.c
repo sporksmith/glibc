@@ -206,13 +206,13 @@ _IO_vfscanf_internal (_IO_FILE *s, const char *format, _IO_va_list argptr,
 #endif
 {
   va_list arg;
-  register const CHAR_T *f = format;
-  register UCHAR_T fc;	/* Current character of the format.  */
-  register WINT_T done = 0;	/* Assignments done.  */
-  register size_t read_in = 0;	/* Chars read in.  */
-  register WINT_T c = 0;	/* Last char read.  */
-  register int width;		/* Maximum field width.  */
-  register int flags;		/* Modifiers for current format element.  */
+  const CHAR_T *f = format;
+  UCHAR_T fc;	/* Current character of the format.  */
+  WINT_T done = 0;	/* Assignments done.  */
+  size_t read_in = 0;	/* Chars read in.  */
+  WINT_T c = 0;	/* Last char read.  */
+  int width;		/* Maximum field width.  */
+  int flags;		/* Modifiers for current format element.  */
   int errval = 0;
 #ifndef COMPILE_WSCANF
   __locale_t loc = _NL_CURRENT_LOCALE;
@@ -272,9 +272,10 @@ _IO_vfscanf_internal (_IO_FILE *s, const char *format, _IO_va_list argptr,
       if (__builtin_expect (wpsize == wpmax, 0))			    \
 	{								    \
 	  CHAR_T *old = wp;						    \
-	  size_t newsize = (UCHAR_MAX + 1 > 2 * wpmax			    \
-			    ? UCHAR_MAX + 1 : 2 * wpmax);		    \
-	  if (use_malloc || !__libc_use_alloca (newsize))		    \
+	  bool fits = __glibc_likely (wpmax <= SIZE_MAX / sizeof (CHAR_T) / 2); \
+	  size_t wpneed = MAX (UCHAR_MAX + 1, 2 * wpmax);		    \
+	  size_t newsize = fits ? wpneed * sizeof (CHAR_T) : SIZE_MAX;	    \
+	  if (!__libc_use_alloca (newsize))				    \
 	    {								    \
 	      wp = realloc (use_malloc ? wp : NULL, newsize);		    \
 	      if (wp == NULL)						    \
@@ -286,14 +287,13 @@ _IO_vfscanf_internal (_IO_FILE *s, const char *format, _IO_va_list argptr,
 		}							    \
 	      if (! use_malloc)						    \
 		MEMCPY (wp, old, wpsize);				    \
-	      wpmax = newsize;						    \
+	      wpmax = wpneed;						    \
 	      use_malloc = true;					    \
 	    }								    \
 	  else								    \
 	    {								    \
 	      size_t s = wpmax * sizeof (CHAR_T);			    \
-	      wp = (CHAR_T *) extend_alloca (wp, s,			    \
-					     newsize * sizeof (CHAR_T));    \
+	      wp = (CHAR_T *) extend_alloca (wp, s, newsize);		    \
 	      wpmax = s / sizeof (CHAR_T);				    \
 	      if (old != NULL)						    \
 		MEMCPY (wp, old, wpsize);				    \

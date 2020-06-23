@@ -309,17 +309,17 @@ static const struct ltest tests[] =
 /* Prototypes for local functions.  */
 static void expand (char *dst, int c);
 
-int
-main (void)
+static int
+do_test (void)
 {
-  register const struct ltest *lt;
+  const struct ltest *lt;
   char *ep;
   int status = 0;
   int save_errno;
 
   for (lt = tests; lt->str != NULL; ++lt)
     {
-      register long long int l;
+      long long int l;
 
       errno = 0;
       l = strtoll (lt->str, &ep, lt->base);
@@ -352,7 +352,7 @@ main (void)
 
   for (++lt; lt->str != NULL; lt++)
     {
-      register unsigned long long int ul;
+      unsigned long long int ul;
 
       errno = 0;
       ul = strtoull (lt->str, &ep, lt->base);
@@ -386,9 +386,7 @@ main (void)
 }
 
 static void
-expand (dst, c)
-     char *dst;
-     int c;
+expand (char *dst, int c)
 {
   if (isprint (c))
     {
@@ -398,3 +396,6 @@ expand (dst, c)
   else
     (void) sprintf (dst, "%#.3o", (unsigned int) c);
 }
+
+#define TEST_FUNCTION do_test ()
+#include "../test-skeleton.c"

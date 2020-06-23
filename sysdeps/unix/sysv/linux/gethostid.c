@@ -27,8 +27,7 @@
 
 #ifdef SET_PROCEDURE
 int
-sethostid (id)
-     long int id;
+sethostid (long int id)
 {
   int fd;
   ssize_t written;
@@ -67,7 +66,7 @@ sethostid (id)
 # include <netinet/in.h>
 
 long int
-gethostid ()
+gethostid (void)
 {
   char hostname[MAXHOSTNAMELEN + 1];
   size_t buflen;

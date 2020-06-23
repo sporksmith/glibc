@@ -29,7 +29,6 @@
 
 #ifndef OPENAT
 # define OPENAT openat
-# define __OPENAT_2 __openat_2
 
 # ifndef __ASSUME_ATFCTS
 /* Set errno after a failed call.  If BUF is not null,
@@ -72,11 +71,7 @@ int __have_atfcts;
 
 
 int
-OPENAT_NOT_CANCEL (fd, file, oflag, mode)
-     int fd;
-     const char *file;
-     int oflag;
-     mode_t mode;
+OPENAT_NOT_CANCEL (int fd, const char *file, int oflag, mode_t mode)
 {
 
   /* We have to add the O_LARGEFILE flag for openat64.  */
@@ -149,16 +144,13 @@ OPENAT_NOT_CANCEL (fd, file, oflag, mode)
 
 
 /* Open FILE with access OFLAG.  Interpret relative paths relative to
-   the directory associated with FD.  If OFLAG includes O_CREAT, a
-   third argument is the file protection.  */
+   the directory associated with FD.  If OFLAG includes O_CREAT or
+   O_TMPFILE, a fourth argument is the file protection.  */
 int
-__OPENAT (fd, file, oflag)
-     int fd;
-     const char *file;
-     int oflag;
+__OPENAT (int fd, const char *file, int oflag, ...)
 {
   mode_t mode = 0;
-  if (oflag & O_CREAT)
+  if (__OPEN_NEEDS_MODE (oflag))
     {
       va_list arg;
       va_start (arg, oflag);
@@ -179,18 +171,3 @@ __OPENAT (fd, file, oflag)
 }
 libc_hidden_def (__OPENAT)
 weak_alias (__OPENAT, OPENAT)
-
-
-int
-__OPENAT_2 (fd, file, oflag)
-     int fd;
-     const char *file;
-     int oflag;
-{
-  if (oflag & O_CREAT)
-#define MSG(s) MSG2 (s)
-#define MSG2(s) "invalid " #s " call: O_CREAT without mode"
-    __fortify_fail (MSG (OPENAT));
-
-  return __OPENAT (fd, file, oflag);
-}

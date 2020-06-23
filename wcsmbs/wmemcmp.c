@@ -23,13 +23,10 @@
 #endif
 
 int
-WMEMCMP (s1, s2, n)
-     const wchar_t *s1;
-     const wchar_t *s2;
-     size_t n;
+WMEMCMP (const wchar_t *s1, const wchar_t *s2, size_t n)
 {
-  register wchar_t c1;
-  register wchar_t c2;
+  wchar_t c1;
+  wchar_t c2;
 
   while (n >= 4)
     {

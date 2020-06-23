@@ -29,12 +29,9 @@ static long int posix_fpathconf (int fd, int name);
 
 /* Get file-specific information about descriptor FD.  */
 long int
-__fpathconf (fd, name)
-     int fd;
-     int name;
+__fpathconf (int fd, int name)
 {
   struct statfs fsbuf;
-  int r;
 
   switch (name)
     {
@@ -49,12 +46,6 @@ __fpathconf (fd, name)
 
     case _PC_CHOWN_RESTRICTED:
       return __statfs_chown_restricted (__fstatfs (fd, &fsbuf), &fsbuf);
-
-    case _PC_PIPE_BUF:
-      r = __fcntl (fd, F_GETPIPE_SZ);
-      if (r > 0)
-	return r;
-      /* FALLTHROUGH */
 
     default:
       return posix_fpathconf (fd, name);

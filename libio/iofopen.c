@@ -35,8 +35,7 @@
 #endif
 
 _IO_FILE *
-__fopen_maybe_mmap (fp)
-     _IO_FILE *fp;
+__fopen_maybe_mmap (_IO_FILE *fp)
 {
 #ifdef _G_HAVE_MMAP
   if ((fp->_flags2 & _IO_FLAGS2_MMAP) && (fp->_flags & _IO_NO_WRITES))
@@ -58,10 +57,7 @@ __fopen_maybe_mmap (fp)
 
 
 _IO_FILE *
-__fopen_internal (filename, mode, is32)
-     const char *filename;
-     const char *mode;
-     int is32;
+__fopen_internal (const char *filename, const char *mode, int is32)
 {
   struct locked_FILE
   {
@@ -83,7 +79,7 @@ __fopen_internal (filename, mode, is32)
   _IO_no_init (&new_f->fp.file, 1, 0, NULL, NULL);
 #endif
   _IO_JUMPS (&new_f->fp) = &_IO_file_jumps;
-  _IO_file_init (&new_f->fp);
+  _IO_new_file_init_internal (&new_f->fp);
 #if  !_IO_UNIFIED_JUMPTABLES
   new_f->fp.vtable = NULL;
 #endif
@@ -96,9 +92,7 @@ __fopen_internal (filename, mode, is32)
 }
 
 _IO_FILE *
-_IO_new_fopen (filename, mode)
-     const char *filename;
-     const char *mode;
+_IO_new_fopen (const char *filename, const char *mode)
 {
   return __fopen_internal (filename, mode, 1);
 }

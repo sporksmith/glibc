@@ -60,8 +60,7 @@ unsigned int __nptl_nthreads = 1;
 
 struct pthread *
 internal_function
-__find_in_stack_list (pd)
-     struct pthread *pd;
+__find_in_stack_list (struct pthread *pd)
 {
   list_t *entry;
   struct pthread *result = NULL;
@@ -432,21 +431,9 @@ start_thread (void *arg)
 }
 
 
-/* Default thread attributes for the case when the user does not
-   provide any.  */
-static const struct pthread_attr default_attr =
-  {
-    /* Just some value > 0 which gets rounded to the nearest page size.  */
-    .guardsize = 1,
-  };
-
-
 int
-__pthread_create_2_1 (newthread, attr, start_routine, arg)
-     pthread_t *newthread;
-     const pthread_attr_t *attr;
-     void *(*start_routine) (void *);
-     void *arg;
+__pthread_create_2_1 (pthread_t *newthread, const pthread_attr_t *attr,
+		      void *(*start_routine) (void *), void *arg)
 {
   STACK_VARIABLES;
 
@@ -454,7 +441,7 @@ __pthread_create_2_1 (newthread, attr, start_routine, arg)
   if (iattr == NULL)
     /* Is this the best idea?  On NUMA machines this could mean
        accessing far-away memory.  */
-    iattr = &default_attr;
+    iattr = &__default_pthread_attr;
 
   struct pthread *pd = NULL;
   int err = ALLOCATE_STACK (iattr, &pd);
@@ -469,7 +456,7 @@ __pthread_create_2_1 (newthread, attr, start_routine, arg)
      performed in 'get_cached_stack'.  This way we avoid doing this if
      the stack freshly allocated with 'mmap'.  */
 
-#ifdef TLS_TCB_AT_TP
+#if TLS_TCB_AT_TP
   /* Reference to the TCB itself.  */
   pd->header.self = pd;
 
@@ -570,11 +557,8 @@ versioned_symbol (libpthread, __pthread_create_2_1, pthread_create, GLIBC_2_1);
 
 #if SHLIB_COMPAT(libpthread, GLIBC_2_0, GLIBC_2_1)
 int
-__pthread_create_2_0 (newthread, attr, start_routine, arg)
-     pthread_t *newthread;
-     const pthread_attr_t *attr;
-     void *(*start_routine) (void *);
-     void *arg;
+__pthread_create_2_0 (pthread_t *newthread, const pthread_attr_t *attr,
+		      void *(*start_routine) (void *), void *arg)
 {
   /* The ATTR attribute is not really of type `pthread_attr_t *'.  It has
      the old size and access to the new members might crash the program.

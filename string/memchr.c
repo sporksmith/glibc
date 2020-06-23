@@ -32,11 +32,11 @@
 # include <memcopy.h>
 #endif
 
-#if HAVE_STDLIB_H || defined _LIBC
+#if defined _LIBC || HAVE_STDLIB_H
 # include <stdlib.h>
 #endif
 
-#if HAVE_LIMITS_H || defined _LIBC
+#if defined _LIBC || HAVE_LIMITS_H
 # include <limits.h>
 #endif
 
@@ -47,21 +47,17 @@
 #endif
 
 #include <sys/types.h>
-#if HAVE_BP_SYM_H || defined _LIBC
-#include <bp-sym.h>
-#else
-# define BP_SYM(sym) sym
-#endif
 
 #undef memchr
 #undef __memchr
 
+#ifndef MEMCHR
+# define MEMCHR __memchr
+#endif
+
 /* Search no more than N bytes of S for C.  */
 __ptr_t
-__memchr (s, c_in, n)
-     const __ptr_t s;
-     int c_in;
-     size_t n;
+MEMCHR (const __ptr_t s, int c_in, size_t n)
 {
   const unsigned char *char_ptr;
   const unsigned long int *longword_ptr;
@@ -203,6 +199,6 @@ __memchr (s, c_in, n)
   return 0;
 }
 #ifdef weak_alias
-weak_alias (__memchr, BP_SYM (memchr))
+weak_alias (__memchr, memchr)
 #endif
 libc_hidden_builtin_def (memchr)

@@ -21,7 +21,7 @@
 #include <kernel-features.h>
 
 
-static const struct pthread_rwlockattr default_attr =
+static const struct pthread_rwlockattr default_rwlockattr =
   {
     .lockkind = PTHREAD_RWLOCK_DEFAULT_NP,
     .pshared = PTHREAD_PROCESS_PRIVATE
@@ -29,13 +29,12 @@ static const struct pthread_rwlockattr default_attr =
 
 
 int
-__pthread_rwlock_init (rwlock, attr)
-     pthread_rwlock_t *rwlock;
-     const pthread_rwlockattr_t *attr;
+__pthread_rwlock_init (pthread_rwlock_t *rwlock,
+		       const pthread_rwlockattr_t *attr)
 {
   const struct pthread_rwlockattr *iattr;
 
-  iattr = ((const struct pthread_rwlockattr *) attr) ?: &default_attr;
+  iattr = ((const struct pthread_rwlockattr *) attr) ?: &default_rwlockattr;
 
   memset (rwlock, '\0', sizeof (*rwlock));
 

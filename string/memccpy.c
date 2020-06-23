@@ -20,20 +20,20 @@
 #undef __memccpy
 #undef memccpy
 
+#ifdef MEMCCPY
+# define __memccpy MEMCCPY
+#endif
+
 /* Copy no more than N bytes of SRC to DEST, stopping when C is found.
    Return the position in DEST one byte past where C was copied, or
    NULL if C was not found in the first N bytes of SRC.  */
 void *
-__memccpy (dest, src, c, n)
-      void *dest;
-      const void *src;
-      int c;
-      size_t n;
+__memccpy (void *dest, const void *src, int c, size_t n)
 {
-  register const char *s = src;
-  register char *d = dest;
-  register const char x = c;
-  register size_t i = n;
+  const char *s = src;
+  char *d = dest;
+  const char x = c;
+  size_t i = n;
 
   while (i-- > 0)
     if ((*d++ = *s++) == x)

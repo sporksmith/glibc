@@ -20,7 +20,6 @@
 
 /* This file uses the getaddrinfo code but it compiles it without NSCD
    support.  We just need a few symbol renames.  */
-#define __inet_aton inet_aton
 #define __ioctl ioctl
 #define __getsockname getsockname
 #define __socket socket
@@ -29,8 +28,15 @@
 #define __sendto sendto
 #define __strchrnul strchrnul
 #define __getline getline
+#define __qsort_r qsort_r
 /* nscd uses 1MB or 2MB thread stacks.  */
 #define __libc_use_alloca(size) (size <= __MAX_ALLOCA_CUTOFF)
+
+/* We do not want to export __inet_aton_exact.  Get the prototype and
+   change its visibility to hidden.  */
+#include <arpa/inet.h>
+__typeof__ (__inet_aton_exact) __inet_aton_exact
+  __attribute__ ((visibility ("hidden")));
 
 /* We are nscd, so we don't want to be talking to ourselves.  */
 #undef  USE_NSCD

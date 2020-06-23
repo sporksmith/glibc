@@ -90,7 +90,7 @@
 # define SIZE_MAX ((size_t) -1)
 #endif
 
-#if (defined MB_CUR_MAX && HAVE_LOCALE_H && HAVE_WCTYPE_H && HAVE_WCHAR_H && HAVE_WCRTOMB && HAVE_MBRTOWC && HAVE_WCSCOLL) || _LIBC
+#if (defined MB_CUR_MAX && HAVE_WCTYPE_H && HAVE_ISWCTYPE) || _LIBC
 # define RE_ENABLE_I18N
 #endif
 
@@ -385,7 +385,7 @@ typedef struct re_dfa_t re_dfa_t;
 # endif
 #endif
 
-#ifndef NOT_IN_libc
+#if IS_IN (libc)
 static reg_errcode_t re_string_realloc_buffers (re_string_t *pstr,
 						int new_buf_len)
      internal_function;
@@ -735,7 +735,7 @@ re_string_wchar_at (const re_string_t *pstr, int idx)
   return (wint_t) pstr->wcs[idx];
 }
 
-# ifndef NOT_IN_libc
+# if IS_IN (libc)
 static int
 internal_function __attribute ((pure))
 re_string_elem_size_at (const re_string_t *pstr, int idx)

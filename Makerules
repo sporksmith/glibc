@@ -123,6 +123,16 @@ $(common-objpfx)libc-abis.stamp: $(..)scripts/gen-libc-abis \
 common-generated += $(common-objpfx)libc-abis.h
 endif # avoid-generated
 
+ifeq (yes,$(build-shared))
+$(common-objpfx)runtime-linker.h: $(common-objpfx)runtime-linker.stamp; @:
+$(common-objpfx)runtime-linker.stamp: $(common-objpfx)config.make
+	$(make-target-directory)
+	echo '#define RUNTIME_LINKER "$(rtlddir)/$(rtld-installed-name)"' \
+		> ${@:stamp=T}
+	$(move-if-change) ${@:stamp=T} ${@:stamp=h}
+	touch $@
+endif
+
 # Make sure the subdirectory for object files gets created.
 ifdef objpfx
 ifeq (,$(wildcard $(objpfx).))
@@ -409,19 +419,15 @@ static-only-routines =
 endif
 endif
 
-# Bounded pointer thunks are only built for *.ob
-elide-bp-thunks = $(addprefix $(bppfx),$(bp-thunks))
-
 elide-routines.oS += $(filter-out $(static-only-routines),\
-				  $(routines) $(aux) $(sysdep_routines)) \
-		     $(elide-bp-thunks)
-elide-routines.os += $(static-only-routines) $(elide-bp-thunks)
+				  $(routines) $(aux) $(sysdep_routines))
+elide-routines.os += $(static-only-routines)
 
 # If we have versioned code we don't need the old versions in any of the
 # static libraries.
-elide-routines.o  += $(shared-only-routines) $(elide-bp-thunks)
-elide-routines.op += $(shared-only-routines) $(elide-bp-thunks)
-elide-routines.og += $(shared-only-routines) $(elide-bp-thunks)
+elide-routines.o  += $(shared-only-routines)
+elide-routines.op += $(shared-only-routines)
+elide-routines.og += $(shared-only-routines)
 elide-routines.ob += $(shared-only-routines)
 
 # Shared library building.
@@ -437,13 +443,33 @@ map-file = $(firstword $($(@F:.so=-map)) \
 load-map-file = $(map-file:%=-Wl,--version-script=%)
 endif
 
+# Compiler arguments to use to link a shared object with libc and
+# ld.so.  This is intended to be as similar as possible to a default
+# link with an installed libc.
+link-libc-args = -Wl,--start-group \
+                 $(libc-for-link) \
+                 $(common-objpfx)libc_nonshared.a \
+                 $(as-needed) $(elf-objpfx)ld.so $(no-as-needed) \
+                 -Wl,--end-group
+
+# The corresponding shared libc to use.  This may be modified for a
+# particular target.
+libc-for-link = $(common-objpfx)libc.so
+
+# The corresponding dependencies.  As these are used in dependencies,
+# not just commands, they cannot use target-specific variables so need
+# to name both possible libc.so objects.
+link-libc-deps = $(common-objpfx)libc.so $(common-objpfx)linkobj/libc.so \
+                 $(common-objpfx)libc_nonshared.a $(elf-objpfx)ld.so
+
 # Pattern rule to build a shared object from an archive of PIC objects.
 # This must come after the installation rules so Make doesn't try to
 # build shared libraries in place from the installed *_pic.a files.
 # $(LDLIBS-%.so) may contain -l switches to generate run-time dependencies
-# on other shared objects.
-lib%.so: lib%_pic.a $(+preinit) $(+postinit) $(+interp)
-	$(build-shlib)
+# on other shared objects.  The linking with libc and ld.so is intended
+# to be as similar as possible to a default link with an installed libc.
+lib%.so: lib%_pic.a $(+preinit) $(+postinit) $(+interp) $(link-libc-deps)
+	$(build-shlib) $(link-libc-args)
 
 define build-shlib-helper
 $(LINK.o) -shared $(static-libgcc) -Wl,-O1 $(sysdep-LDFLAGS) \
@@ -451,7 +477,7 @@ $(LINK.o) -shared $(static-libgcc) -Wl,-O1 $(sysdep-LDFLAGS) \
 	  $(extra-B-$(@F:lib%.so=%).so) -B$(csu-objpfx) \
 	  $(extra-B-$(@F:lib%.so=%).so) $(load-map-file) \
 	  -Wl,-soname=lib$(libprefix)$(@F:lib%.so=%).so$($(@F)-version) \
-	  $(LDFLAGS.so) $(LDFLAGS-$(@F:lib%.so=%).so) \
+	  $(LDFLAGS.so) $(LDFLAGS-lib.so) $(LDFLAGS-$(@F:lib%.so=%).so) \
 	  -L$(subst :, -L,$(rpath-link)) -Wl,-rpath-link=$(rpath-link)
 endef
 
@@ -490,6 +516,9 @@ $(common-objpfx)shlib.lds: $(common-objpfx)config.make $(..)Makerules
 		 PROVIDE(__start___libc_thread_subfreeres = .);\
 		 __libc_thread_subfreeres : { *(__libc_thread_subfreeres) }\
 		 PROVIDE(__stop___libc_thread_subfreeres = .);\
+		 PROVIDE(__start___libc_IO_vtables = .);\
+		 __libc_IO_vtables : { *(__libc_IO_vtables) }\
+		 PROVIDE(__stop___libc_IO_vtables = .);\
 		 /DISCARD/ : { *(.gnu.glibc-stub.*) }@'
 	test -s $@T
 	mv -f $@T $@
@@ -518,17 +547,19 @@ endef
 # not for shared objects
 define build-module
 $(build-module-helper) -o $@ $(shlib-lds-flags) \
-	  $(csu-objpfx)abi-note.o $(build-module-objlist)
+	  $(csu-objpfx)abi-note.o $(build-module-objlist) $(link-libc-args)
 endef
 define build-module-asneeded
 $(build-module-helper) -o $@ $(shlib-lds-flags) \
 	  $(csu-objpfx)abi-note.o \
-	  -Wl,--as-needed $(build-module-objlist) -Wl,--no-as-needed
+	  -Wl,--as-needed $(build-module-objlist) -Wl,--no-as-needed \
+	  $(link-libc-args)
 endef
 
 build-module-helper-objlist = \
 	$(patsubst %_pic.a,$(whole-archive) %_pic.a $(no-whole-archive),\
-		   $(filter-out %.lds $(map-file) $(+preinit) $(+postinit),$^))
+		   $(filter-out %.lds $(map-file) $(+preinit) $(+postinit) \
+				$(link-libc-deps),$^))
 
 build-module-objlist = $(build-module-helper-objlist) $(LDLIBS-$(@F:%.so=%).so)
 build-shlib-objlist = $(build-module-helper-objlist) \
@@ -571,6 +602,9 @@ generated += libc_pic.opts libc_pic.os.clean
 libc_pic_clean := .clean
 endif
 
+# Do not filter ld.so out of libc.so link.
+$(common-objpfx)libc.so: link-libc-deps = # empty
+
 # Use our own special initializer and finalizer files for libc.so.
 $(common-objpfx)libc.so: $(elfobjdir)/soinit.os \
 			 $(common-objpfx)libc_pic.os$(libc_pic_clean) \
@@ -601,11 +635,7 @@ headers := $(headers) $(sysdep_headers)
 
 # This is the list of all object files, gotten by
 # replacing every ".c" in `sources' with a ".o".
-# We also add bounded-pointer thunks, which are later
-# elided for all suffixes except for `.ob'.
-override objects := $(addprefix $(objpfx),$(sources:.c=.o) \
-		      $(patsubst %,$(bppfx)%.o,\
-			$(filter $(routines) $(sysdep_routines),$(bp-thunks))))
+override objects := $(addprefix $(objpfx),$(sources:.c=.o))
 
 
 # The makefile may define $(extra-libs) with `libfoo libbar'
@@ -630,8 +660,7 @@ include $(patsubst %,$(..)extra-modules.mk,$(modules-names))
 
 extra-modules-build := $(filter-out $(modules-names-nobuild),$(modules-names))
 $(extra-modules-build:%=$(objpfx)%.so): $(objpfx)%.so: \
-		$(objpfx)%.os $(shlib-lds) \
-		$(common-objpfx)libc.so $(common-objpfx)libc_nonshared.a
+		$(objpfx)%.os $(shlib-lds) $(link-libs-deps)
 	$(build-module)
 endif
 
@@ -873,7 +902,7 @@ ifeq (no,$(cross-compiling))
 symbolic-link-prog := $(common-objpfx)elf/sln
 symbolic-link-list := $(common-objpfx)elf/symlink.list
 define make-shlib-link
-echo $(<F) $@ >> $(symbolic-link-list)
+echo `$(..)scripts/rellns-sh -p $< $@` $@ >> $(symbolic-link-list)
 endef
 else # cross-compiling
 # We need a definition that can be used by elf/Makefile's install rules.
@@ -883,7 +912,7 @@ endif
 ifndef make-shlib-link
 define make-shlib-link
 rm -f $@
-$(LN_S) $(<F) $@
+$(LN_S) `$(..)scripts/rellns-sh -p $< $@` $@
 endef
 endif
 
@@ -909,7 +938,8 @@ $(common-objpfx)format.lds: $(..)scripts/output-format.sed \
 ifneq (unknown,$(output-format))
 	echo > $@.new 'OUTPUT_FORMAT($(output-format))'
 else
-	$(LINK.o) -shared $(sysdep-LDFLAGS) $(config-LDFLAGS) $(LDFLAGS.so) \
+	$(LINK.o) -shared $(sysdep-LDFLAGS) $(config-LDFLAGS) \
+		  $(LDFLAGS.so) $(LDFLAGS-lib.so) \
 		  -x c /dev/null -o $@.so -Wl,--verbose -v 2>&1 \
 	| sed -n -f $< > $@.new
 	test -s $@.new
@@ -937,7 +967,7 @@ $(inst_libdir)/libc.so: $(common-objpfx)format.lds \
 	 cat $<; \
 	 echo 'GROUP ( $(slibdir)/libc.so$(libc.so-version)' \
 	      '$(libdir)/$(patsubst %,$(libtype.oS),$(libprefix)$(libc-name))'\
-	      ' AS_NEEDED (' $(slibdir)/$(rtld-installed-name) ') )' \
+	      ' AS_NEEDED (' $(rtlddir)/$(rtld-installed-name) ') )' \
 	) > $@.new
 	mv -f $@.new $@
 
@@ -1131,13 +1161,10 @@ xcheck: xtests
 
 all-nonlib = $(strip $(tests) $(xtests) $(test-srcs) $(test-extras) $(others))
 ifneq (,$(all-nonlib))
-cpp-srcs-left = $(all-nonlib:=.c) $(all-nonlib:=.cc)
+cpp-srcs-left = $(all-nonlib)
 lib := nonlib
 include $(patsubst %,$(..)cppflags-iterator.mk,$(cpp-srcs-left))
 endif
-
-# The include magic above causes those files to use this variable for flags.
-CPPFLAGS-nonlib = -DNOT_IN_libc=1
 
 
 ifeq ($(versioning),yes)
@@ -1152,6 +1179,14 @@ ifeq ($(versioning),yes)
 	LC_ALL=C $(OBJDUMP) --dynamic-syms $< > $@T
 	mv -f $@T $@
 
+# A sysdeps/.../Makefile can set abilist-pattern to something like
+# %-foo.abilist to look for libc-foo.abilist instead of libc.abilist.
+# This makes sense if multiple ABIs can be most cleanly supported by a
+# configuration without using separate sysdeps directories for each.
+ifdef abilist-pattern
+vpath $(abilist-pattern) $(+sysdep_dirs)
+endif
+
 vpath %.abilist $(+sysdep_dirs)
 
 # The .PRECIOUS rule prevents the files built by an implicit rule whose
@@ -1161,18 +1196,42 @@ vpath %.abilist $(+sysdep_dirs)
 .PRECIOUS: %.symlist
 generated += $(extra-libs:=.symlist)
 
+ifdef abilist-pattern
+check-abi-%: $(common-objpfx)config.make $(abilist-pattern) $(objpfx)%.symlist
+	$(check-abi-pattern)
+check-abi-%: $(common-objpfx)config.make $(abilist-pattern) \
+	     $(common-objpfx)%.symlist
+	$(check-abi-pattern)
+endif
 check-abi-%: $(common-objpfx)config.make %.abilist $(objpfx)%.symlist
 	$(check-abi)
 check-abi-%: $(common-objpfx)config.make %.abilist $(common-objpfx)%.symlist
 	$(check-abi)
+define check-abi-pattern
+	diff -p -U 0 $(filter $(abilist-pattern),$^) $(filter %.symlist,$^)
+endef
 define check-abi
 	diff -p -U 0 $(filter %.abilist,$^) $(filter %.symlist,$^)
 endef
 
+ifdef abilist-pattern
+update-abi-%: $(objpfx)%.symlist $(abilist-pattern)
+	$(update-abi-pattern)
+update-abi-%: $(common-objpfx)%.symlist $(abilist-pattern)
+	$(update-abi-pattern)
+endif
 update-abi-%: $(objpfx)%.symlist %.abilist
 	$(update-abi)
 update-abi-%: $(common-objpfx)%.symlist %.abilist
 	$(update-abi)
+define update-abi-pattern
+@if cmp -s $^ 2> /dev/null; \
+ then \
+      echo '+++ $(filter $(abilist-pattern),$^) is unchanged'; \
+ else cp -f $^; \
+      echo '*** Now check $(filter $(abilist-pattern),$^) changes for correctness ***'; \
+ fi
+endef
 define update-abi
 @if cmp -s $^ 2> /dev/null; \
  then \

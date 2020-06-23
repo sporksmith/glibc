@@ -69,6 +69,9 @@
 /* Define if the compiler supports __builtin_memset.  */
 #undef	HAVE_BUILTIN_MEMSET
 
+/* Define if compiler accepts -ftree-loop-distribute-patterns.  */
+#undef  HAVE_CC_INHIBIT_LOOP_TO_LIBCALL
+
 /* Define if the regparm attribute shall be used for local functions
    (gcc on ix86 only).  */
 #undef	USE_REGPARMS
@@ -98,6 +101,25 @@
 /* Define if gcc supports VEX encoding.  */
 #undef	HAVE_SSE2AVX_SUPPORT
 
+/* Define if compiler supports AVX512.  */
+#undef  HAVE_AVX512_SUPPORT
+
+/* Define if assembler supports AVX512.  */
+#undef  HAVE_AVX512_ASM_SUPPORT
+
+/* Define if assembler supports Intel MPX.  */
+#undef  HAVE_MPX_SUPPORT
+
+/* Define if assembler supports z196 zarch instructions as default on S390.  */
+#undef  HAVE_S390_MIN_Z196_ZARCH_ASM_SUPPORT
+
+/* Define if assembler supports vector instructions on S390.  */
+#undef  HAVE_S390_VX_ASM_SUPPORT
+
+/* Define if gcc supports vector registers as clobbers in inline assembly
+   on S390.  */
+#undef  HAVE_S390_VX_GCC_SUPPORT
+
 /* Define if gcc supports FMA4.  */
 #undef	HAVE_FMA4_SUPPORT
 
@@ -115,7 +137,7 @@
 
 /* Defined to some form of __attribute__ ((...)) if the compiler supports
    a different, more efficient calling convention.  */
-#if defined USE_REGPARMS && !defined PROF && !defined __BOUNDED_POINTERS__
+#if defined USE_REGPARMS && !defined PROF
 # define internal_function __attribute__ ((regparm (3), stdcall))
 #endif
 
@@ -160,6 +182,9 @@
 
 /* Define if __stack_chk_guard canary should be randomized at program startup.  */
 #undef ENABLE_STACKGUARD_RANDOMIZE
+
+/* Define if lock elision should be enabled by default.  */
+#undef ENABLE_LOCK_ELISION
 
 /* Package description.  */
 #undef PKGVERSION
@@ -231,5 +256,8 @@
 
 /* The ARM hard-float ABI is being used.  */
 #undef HAVE_ARM_PCS_VFP
+
+/* The pt_chown binary is being built and used by grantpt.  */
+#define HAVE_PT_CHOWN 0
 
 #endif

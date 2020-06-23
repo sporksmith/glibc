@@ -48,14 +48,13 @@ ENTRY (__isinf)
 	li	r3,0
 	bflr    29	      /* If not INF, return.  */
 
-	/* Either we have -INF/+INF or a denormal.  */
+	/* Either we have +INF or -INF.  */
 
 	stwu    r1,-16(r1)    /* Allocate stack space.  */
 	stfd    fp1,8(r1)     /* Transfer FP to GPR's.  */
 	ori	2,2,0	      /* Force a new dispatch group.  */
-	lhz	r4,8(r1)      /* Fetch the upper portion of the high word of
-			      the FP value (where the exponent and sign bits
-			      are).  */
+	lhz	r4,8+HISHORT(r1) /* Fetch the upper 16 bits of the FP value
+				    (biased exponent and sign bit).  */
 	addi	r1,r1,16      /* Reset the stack pointer.  */
 	cmpwi	cr7,r4,0x7ff0 /* r4 == 0x7ff0?  */
 	li	r3,1
@@ -78,7 +77,7 @@ strong_alias (__isinf, __isinfl)
 weak_alias (__isinf, isinfl)
 #endif
 
-#ifndef IS_IN_libm
+#if !IS_IN (libm)
 # if LONG_DOUBLE_COMPAT(libc, GLIBC_2_0)
 compat_symbol (libc, __isinf, __isinfl, GLIBC_2_0);
 compat_symbol (libc, isinf, isinfl, GLIBC_2_0);

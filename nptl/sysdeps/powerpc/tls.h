@@ -49,6 +49,7 @@ typedef union dtv
 
 /* The TP points to the start of the thread blocks.  */
 # define TLS_DTV_AT_TP	1
+# define TLS_TCB_AT_TP	0
 
 /* We use the multiple_threads field in the pthread struct */
 #define TLS_MULTIPLE_THREADS_IN_TCB	1
@@ -56,11 +57,28 @@ typedef union dtv
 /* Get the thread descriptor definition.  */
 # include <nptl/descr.h>
 
+
 /* The stack_guard is accessed directly by GCC -fstack-protector code,
    so it is a part of public ABI.  The dtv and pointer_guard fields
    are private.  */
 typedef struct
 {
+  /* Indicate if HTM capable (ISA 2.07).  */
+  uint32_t tm_capable;
+  /* Reservation for AT_PLATFORM data - powerpc64.  */
+#ifdef __powerpc64__
+  uint32_t at_platform;
+#endif
+  /* Reservation for Dynamic System Optimizer ABI.  */
+  uintptr_t dso_slot2;
+  uintptr_t dso_slot1;
+  /* GCC split stack support.  */
+  void *__private_ss;
+  /* Reservation for the Event-Based Branching ABI.  */
+  uintptr_t ebb_handler;
+  uintptr_t ebb_ctx_pointer;
+  uintptr_t ebb_reserved1;
+  uintptr_t ebb_reserved2;
   uintptr_t pointer_guard;
   uintptr_t stack_guard;
   dtv_t *dtv;
@@ -116,7 +134,11 @@ register void *__thread_register __asm__ ("r13");
    special attention since 'errno' is not yet available and if the
    operation can cause a failure 'errno' must not be touched.  */
 # define TLS_INIT_TP(tcbp, secondcall) \
-    (__thread_register = (void *) (tcbp) + TLS_TCB_OFFSET, NULL)
+  ({ 									      \
+    __thread_register = (void *) (tcbp) + TLS_TCB_OFFSET;		      \
+    THREAD_SET_TM_CAPABLE (GLRO (dl_hwcap2) & PPC_FEATURE2_HAS_HTM ? 1 : 0);  \
+    NULL;								      \
+  })
 
 /* Return the address of the dtv for the current thread.  */
 # define THREAD_DTV() \
@@ -169,6 +191,13 @@ register void *__thread_register __asm__ ("r13");
     (((tcbhead_t *) ((char *) (descr)					      \
 		     + TLS_PRE_TCB_SIZE))[-1].pointer_guard		      \
      = THREAD_GET_POINTER_GUARD())
+
+/* tm_capable field in TCB head.  */
+# define THREAD_GET_TM_CAPABLE() \
+    (((tcbhead_t *) ((char *) __thread_register				      \
+		     - TLS_TCB_OFFSET))[-1].tm_capable)
+# define THREAD_SET_TM_CAPABLE(value) \
+    (THREAD_GET_TM_CAPABLE () = (value))
 
 /* l_tls_offset == 0 is perfectly valid on PPC, so we have to use some
    different value to mean unset l_tls_offset.  */

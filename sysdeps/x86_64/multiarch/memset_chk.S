@@ -21,17 +21,22 @@
 #include <init-arch.h>
 
 /* Define multiple versions only for the definition in lib.  */
-#ifndef NOT_IN_libc
+#if IS_IN (libc)
 # ifdef SHARED
 ENTRY(__memset_chk)
 	.type	__memset_chk, @gnu_indirect_function
-	cmpl	$0, __cpu_features+KIND_OFFSET(%rip)
-	jne	1f
-	call	__init_cpu_features
-1:	leaq	__memset_chk_x86_64(%rip), %rax
-	testl	$bit_Prefer_SSE_for_memop, __cpu_features+FEATURE_OFFSET+index_Prefer_SSE_for_memop(%rip)
+	LOAD_RTLD_GLOBAL_RO_RDX
+	leaq	__memset_chk_x86_64(%rip), %rax
+	HAS_ARCH_FEATURE (Prefer_SSE_for_memop)
 	jz	2f
 	leaq	__memset_chk_sse2(%rip), %rax
+#ifdef HAVE_AVX512_ASM_SUPPORT
+	HAS_ARCH_FEATURE (AVX512F_Usable)
+	jz	2f
+	HAS_ARCH_FEATURE (Prefer_No_VZEROUPPER)
+	jz	2f
+	leaq	__memset_chk_avx512_no_vzeroupper(%rip), %rax
+#endif
 2:	ret
 END(__memset_chk)
 

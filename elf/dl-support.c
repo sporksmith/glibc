@@ -81,22 +81,14 @@ unsigned long long _dl_load_adds;
    create a fake scope containing nothing.  */
 struct r_scope_elem _dl_initial_searchlist;
 
-#ifndef HAVE_INLINED_SYSCALLS
 /* Nonzero during startup.  */
 int _dl_starting_up = 1;
-#endif
 
 /* Random data provided by the kernel.  */
 void *_dl_random;
 
 /* Get architecture specific initializer.  */
 #include <dl-procinfo.c>
-
-/* We expect less than a second for relocation.  */
-#ifdef HP_SMALL_TIMING_AVAIL
-# undef HP_TIMING_AVAIL
-# define HP_TIMING_AVAIL HP_SMALL_TIMING_AVAIL
-#endif
 
 /* Initial value of the CPU clock.  */
 #ifndef HP_TIMING_NONAVAIL
@@ -129,6 +121,11 @@ ElfW(auxv_t) *_dl_auxv;
 ElfW(Phdr) *_dl_phdr;
 size_t _dl_phnum;
 uint64_t _dl_hwcap __attribute__ ((nocommon));
+uint64_t _dl_hwcap2 __attribute__ ((nocommon));
+
+/* RHEL 7-specific change: Is elision enabled for the process?
+   Static library definition.  */
+bool _dl_elision_enabled;
 
 /* This is not initialized to HWCAP_IMPORTANT, matching the definition
    of _dl_important_hwcaps, below, where no hwcap strings are ever
@@ -212,6 +209,9 @@ _dl_aux_init (ElfW(auxv_t) *av)
       case AT_HWCAP:
 	GLRO(dl_hwcap) = (unsigned long int) av->a_un.a_val;
 	break;
+      case AT_HWCAP2:
+	GLRO(dl_hwcap2) = (unsigned long int) av->a_un.a_val;
+	break;
 #ifdef NEED_DL_SYSINFO
       case AT_SYSINFO:
 	GL(dl_sysinfo) = av->a_un.a_val;
@@ -263,7 +263,7 @@ void
 internal_function
 _dl_non_dynamic_init (void)
 {
-  if (HP_TIMING_AVAIL)
+  if (HP_SMALL_TIMING_AVAIL)
     HP_TIMING_NOW (_dl_cpuclock_offset);
 
   if (!_dl_pagesize)
@@ -292,6 +292,9 @@ _dl_non_dynamic_init (void)
   if (_dl_profile_output == NULL || _dl_profile_output[0] == '\0')
     _dl_profile_output
       = &"/var/tmp\0/var/profile"[__libc_enable_secure ? 9 : 0];
+
+  /* RHEL 7 specific change: Process tunables at startup.  */
+  _dl_process_tunable_env_entries ();
 
   if (__libc_enable_secure)
     {

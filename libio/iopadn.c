@@ -33,10 +33,7 @@ static char const zeroes[PADSIZE] =
 {'0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0'};
 
 _IO_ssize_t
-_IO_padn (fp, pad, count)
-      _IO_FILE *fp;
-      int pad;
-      _IO_ssize_t count;
+_IO_padn (_IO_FILE *fp, int pad, _IO_ssize_t count)
 {
   char padbuf[PADSIZE];
   const char *padptr;
@@ -59,7 +56,7 @@ _IO_padn (fp, pad, count)
       w = _IO_sputn (fp, padptr, PADSIZE);
       written += w;
       if (w != PADSIZE)
-	return w == EOF ? w : written;
+	return written;
     }
 
   if (i > 0)

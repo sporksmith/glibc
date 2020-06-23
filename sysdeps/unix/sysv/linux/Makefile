@@ -39,68 +39,46 @@ sysdep_headers += sys/mount.h sys/acct.h sys/sysctl.h \
 
 tests += tst-clone
 
-# Generate the list of SYS_* macros for the system calls (__NR_* macros).
+# Generate the list of SYS_* macros for the system calls (__NR_*
+# macros).  The file syscall-names.list contains all possible system
+# call names, and the generated header file produces SYS_* macros for
+# the __NR_* macros which are actually defined.
 
-# If there is more than one syscall list for different architecture
-# variants, the CPU/Makefile defines abi-variants to be a list of names
-# for those variants (e.g. 32 64), and, for each variant, defines
-# abi-$(variant)-options to be compiler options to cause <asm/unistd.h>
-# to define the desired list of syscalls and abi-$(variant)-condition to
-# be the condition for those options to use in a C #if condition.
-# abi-includes may be defined to a list of headers to include
-# in the generated header, if the default does not suffice.
-
-$(objpfx)bits/syscall%h $(objpfx)bits/syscall%d: ../sysdeps/unix/sysv/linux/sys/syscall.h
+generated += bits/syscall.h
+$(objpfx)bits/syscall.h: \
+  ../sysdeps/unix/sysv/linux/gen-syscall-h.awk \
+  ../sysdeps/unix/sysv/linux/syscall-names.list
 	$(make-target-directory)
-	{ \
-	 echo '/* Generated at libc build time from kernel syscall list.  */';\
-	 echo ''; \
-	 echo '#ifndef _SYSCALL_H'; \
-	 echo '# error "Never use <bits/syscall.h> directly; include <sys/syscall.h> instead."'; \
-	 echo '#endif'; \
-	 echo ''; \
-	 $(foreach h,$(abi-includes), echo '#include <$(h)>';) \
-	 echo ''; \
-	 $(if $(abi-variants), \
-	 $(foreach v,$(abi-variants),\
-	 $(CC) -E -MD -MP -MF $(@:.h=.d)-t$(v) -MT '$(@:.d=.h) $(@:.h=.d)' \
-	       -x c $(sysincludes) $< $(abi-$(v)-options) \
-	       -D_LIBC -dM | \
-	 sed -n 's@^#define __NR_\([^ ]*\) .*$$@#define SYS_\1 __NR_\1@p' | \
-	 LC_ALL=C sort > $(@:.d=.h).new$(v); \
-	 $(if $(abi-$(v)-condition),\
-	 echo '#if $(abi-$(v)-condition)';) \
-	 cat $(@:.d=.h).new$(v); \
-	 $(if $(abi-$(v)-condition),echo '#endif';) \
-	 rm -f $(@:.d=.h).new$(v); \
-	 ), \
-	 $(CC) -E -MD -MP -MF $(@:.h=.d)-t$(v) -MT '$(@:.d=.h) $(@:.h=.d)' \
-	       -x c $(sysincludes) $< \
-	       -D_LIBC -dM | \
-	 sed -n 's@^#define __NR_\([^ ]*\) .*$$@#define SYS_\1 __NR_\1@p' | \
-	 LC_ALL=C sort;) \
-	} > $(@:.d=.h).new
-	mv -f $(@:.d=.h).new $(@:.d=.h)
-ifdef abi-variants
-ifneq (,$(objpfx))
-	sed $(sed-remove-objpfx) \
-	 $(foreach v,$(abi-variants),$(@:.h=.d)-t$(v)) > $(@:.h=.d)-t3
-else
-	cat $(foreach v,$(abi-variants),$(@:.h=.d)-t$(v)) \
-	 > $(@:.h=.d)-t3
-endif
-	rm -f $(foreach v,$(abi-variants),$(@:.h=.d)-t$(v))
-	mv -f $(@:.h=.d)-t3 $(@:.h=.d)
-else
-	mv -f $(@:.h=.d)-t $(@:.h=.d)
-endif
+	$(AWK) -f $^ > $@-tmp
+	$(move-if-change) $@-tmp $@
 
-ifndef no_deps
-# Get the generated list of dependencies (probably /usr/include/asm/unistd.h).
--include $(objpfx)bits/syscall.d
-endif
-generated += bits/syscall.h bits/syscall.d
-endif
+# All macros defined by <sys/syscall.h>.  Include <bits/syscall.h>
+# explicitly because <sys/sycall.h> skips it if _LIBC is defined.
+$(objpfx)tst-syscall-list-macros.list: \
+  $(objpfx)bits/syscall.h ../sysdeps/unix/sysv/linux/sys/syscall.h
+	printf '#include <sys/syscall.h>\n#include <bits/syscall.h>\n' | \
+	  $(CC) -E -o $@-tmp $(CFLAGS) $(CPPFLAGS) -x c - -dM
+	$(move-if-change) $@-tmp $@
+
+# __NR_* system call names.  Used by the test below.
+$(objpfx)tst-syscall-list-nr.list: \
+  ../sysdeps/unix/sysv/linux/filter-nr-syscalls.awk \
+  $(objpfx)tst-syscall-list-macros.list
+	$(AWK) -f $^ > $@-tmp
+	$(move-if-change) $@-tmp $@
+
+# SYS_* system call names.  Used by the test below.
+$(objpfx)tst-syscall-list-sys.list: $(objpfx)tst-syscall-list-macros.list
+	$(AWK) '/^#define SYS_/ { print substr($$2, 5) }' $< > $@-tmp
+	$(move-if-change) $@-tmp $@
+
+tests: $(objpfx)tst-syscall-list.out
+$(objpfx)tst-syscall-list.out: \
+  ../sysdeps/unix/sysv/linux/tst-syscall-list.sh \
+  $(objpfx)tst-syscall-list-nr.list $(objpfx)tst-syscall-list-sys.list
+	$(BASH) $^ > $@
+
+endif # $(subdir) == misc
 
 ifeq ($(subdir),time)
 sysdep_headers += sys/timex.h bits/timex.h
@@ -136,6 +114,7 @@ sysdep_headers += netinet/if_fddi.h netinet/if_tr.h \
 		  netipx/ipx.h netash/ash.h netax25/ax25.h netatalk/at.h \
 		  netrom/netrom.h netpacket/packet.h netrose/rose.h \
 		  neteconet/ec.h netiucv/iucv.h
+sysdep_routines += netlink_assert_response
 endif
 
 # Don't compile the ctype glue code, since there is no old non-GNU C library.
@@ -151,7 +130,7 @@ endif
 
 ifeq ($(subdir),io)
 sysdep_routines += xstatconv internal_statvfs internal_statvfs64 \
-		   sync_file_range open_2 open64_2 fallocate fallocate64
+		   sync_file_range fallocate fallocate64
 sysdep_headers += bits/fcntl-linux.h
 endif
 
@@ -159,7 +138,7 @@ ifeq ($(subdir),elf)
 sysdep-rtld-routines += dl-brk dl-sbrk dl-getcwd dl-openat64 dl-opendir \
 			dl-fxstatat64
 
-CPPFLAGS-lddlibc4 += -DNOT_IN_libc
+libof-lddlibc4 = lddlibc4
 endif
 
 ifeq ($(subdir),rt)

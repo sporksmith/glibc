@@ -47,6 +47,7 @@ routines	:=							      \
 	strtol_l strtoul_l strtoll_l strtoull_l				      \
 	strtof strtod strtold						      \
 	strtof_l strtod_l strtold_l					      \
+	strtof_nan strtod_nan strtold_nan				      \
 	system canonicalize						      \
 	a64l l64a							      \
 	rpmatch strfmon strfmon_l getsubopt xpg_basename fmtmsg		      \
@@ -64,13 +65,14 @@ tests		:= tst-strtol tst-strtod testmb testrand testsort testdiv   \
 		   test-canon test-canon2 tst-strtoll tst-environ	    \
 		   tst-xpg-basename tst-random tst-random2 tst-bsearch	    \
 		   tst-limits tst-rand48 bug-strtod tst-setcontext	    \
-		   test-a64l tst-qsort tst-system testmb2 bug-strtod2	    \
-		   tst-atof1 tst-atof2 tst-strtod2 tst-strtod3 tst-rand48-2 \
-		   tst-makecontext tst-strtod4 tst-strtod5 tst-qsort2	    \
-		   tst-makecontext2 tst-strtod6 tst-unsetenv1		    \
+		   tst-setcontext2 test-a64l tst-qsort tst-system testmb2   \
+		   bug-strtod2 tst-atof1 tst-atof2 tst-strtod2 tst-strtod3  \
+		   tst-rand48-2 tst-makecontext tst-strtod4 tst-strtod5     \
+		   tst-qsort2 tst-makecontext2 tst-strtod6 tst-unsetenv1    \
 		   tst-makecontext3 bug-getcontext bug-fmtmsg1		    \
 		   tst-secure-getenv tst-strtod-overflow tst-strtod-round   \
-		   tst-tininess tst-strtod-underflow
+		   tst-tininess tst-strtod-underflow tst-strfmon_l	    \
+		   tst-makecontext-align test-bz22786
 tests-static	:= tst-secure-getenv
 
 include ../Makeconfig
@@ -113,11 +115,6 @@ include ../Rules
 # Testdir has to be named stdlib and needs to be writable
 test-canon-ARGS = --test-dir=${common-objpfx}stdlib
 
-tst-strtod-ENV = LOCPATH=$(common-objpfx)localedata
-tst-strtod3-ENV = LOCPATH=$(common-objpfx)localedata
-tst-strtod4-ENV = LOCPATH=$(common-objpfx)localedata
-tst-strtod5-ENV = LOCPATH=$(common-objpfx)localedata
-testmb2-ENV = LOCPATH=$(common-objpfx)localedata
 bug-fmtmsg1-ENV = SEV_LEVEL=foo,11,newsev
 
 # Run a test on the header files we use.
@@ -141,9 +138,9 @@ $(objpfx)tst-fmtmsg.out: tst-fmtmsg.sh $(objpfx)tst-fmtmsg
 $(objpfx)tst-putenv: $(objpfx)tst-putenvmod.so
 LDFLAGS-tst-putenv = $(no-as-needed)
 
-$(objpfx)tst-putenvmod.so: $(objpfx)tst-putenvmod.os
+$(objpfx)tst-putenvmod.so: $(objpfx)tst-putenvmod.os $(link-libc-deps)
 	$(build-module)
-CFLAGS-tst-putenvmod.c = -DNOT_IN_libc=1
+libof-tst-putenvmod = extramodules
 
 ifeq ($(build-shared),yes)
 link-libm = $(common-objpfx)math/libm.so
@@ -154,3 +151,4 @@ $(objpfx)bug-getcontext: $(link-libm)
 $(objpfx)tst-strtod-round: $(link-libm)
 $(objpfx)tst-tininess: $(link-libm)
 $(objpfx)tst-strtod-underflow: $(link-libm)
+$(objpfx)tst-makecontext: $(libdl)

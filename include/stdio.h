@@ -117,7 +117,7 @@ extern const char *const _sys_errlist_internal[] attribute_hidden;
 extern int _sys_nerr_internal attribute_hidden;
 
 libc_hidden_proto (__asprintf)
-#  if !defined NOT_IN_libc
+#  if IS_IN (libc)
 extern _IO_FILE *_IO_new_fopen (const char*, const char*);
 #   define fopen(fname, mode) _IO_new_fopen (fname, mode)
 extern _IO_FILE *_IO_new_fdopen (int, const char*);
@@ -151,6 +151,8 @@ libc_hidden_proto (fflush_unlocked)
 libc_hidden_proto (fread_unlocked)
 libc_hidden_proto (fwrite_unlocked)
 libc_hidden_proto (fgets_unlocked)
+extern __typeof (fgets_unlocked) __fgets_unlocked;
+libc_hidden_proto (__fgets_unlocked)
 libc_hidden_proto (fputs_unlocked)
 libc_hidden_proto (fmemopen)
 libc_hidden_proto (open_memstream)

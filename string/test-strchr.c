@@ -26,8 +26,12 @@
 #  define TEST_NAME "strchr"
 # endif
 #else
-# define TEST_NAME "wcschr"
-#endif
+# ifdef USE_FOR_STRCHRNUL
+#  define TEST_NAME "wcschrnul"
+# else
+#  define TEST_NAME "wcschr"
+# endif /* !USE_FOR_STRCHRNUL */
+#endif /* WIDE */
 #include "test-string.h"
 
 #ifndef WIDE
@@ -44,15 +48,23 @@
 # define MIDDLE_CHAR 127
 # define SMALL_CHAR 23
 # define UCHAR unsigned char
+# define L(s) s
 #else
 # include <wchar.h>
-# define STRCHR wcschr
+# ifdef USE_FOR_STRCHRNUL
+#  define STRCHR wcschrnul
+#  define stupid_STRCHR stupid_WCSCHRNUL
+#  define simple_STRCHR simple_WCSCHRNUL
+# else
+#  define STRCHR wcschr
+# endif /* !USE_FOR_STRCHRNUL */
 # define STRLEN wcslen
 # define CHAR wchar_t
 # define BIG_CHAR WCHAR_MAX
 # define MIDDLE_CHAR 1121
 # define SMALL_CHAR 851
 # define UCHAR wchar_t
+# define L(s) L ## s
 #endif
 
 #ifdef USE_FOR_STRCHRNUL
@@ -107,24 +119,6 @@ do_one_test (impl_t *impl, const CHAR *s, int c, const CHAR *exp_res)
 {
   if (check_result (impl, s, c, exp_res) < 0)
     return;
-
-  if (HP_TIMING_AVAIL)
-    {
-      hp_timing_t start __attribute ((unused));
-      hp_timing_t stop __attribute ((unused));
-      hp_timing_t best_time = ~ (hp_timing_t) 0;
-      size_t i;
-
-      for (i = 0; i < 32; ++i)
-	{
-	  HP_TIMING_NOW (start);
-	  CALL (impl, s, c);
-	  HP_TIMING_NOW (stop);
-	  HP_TIMING_BEST (best_time, start, stop);
-	}
-
-      printf ("\t%zd", (size_t) best_time);
-    }
 }
 
 static void
@@ -160,15 +154,8 @@ do_test (size_t align, size_t pos, size_t len, int seek_char, int max_char)
   else
     result = NULLRET (buf + align + len);
 
-  if (HP_TIMING_AVAIL)
-    printf ("Length %4zd, alignment in bytes %2zd:",
-	    pos, align * sizeof (CHAR));
-
   FOR_EACH_IMPL (impl, 0)
     do_one_test (impl, buf + align, seek_char, result);
-
-  if (HP_TIMING_AVAIL)
-    putchar ('\n');
 }
 
 static void
@@ -244,9 +231,9 @@ do_random_tests (void)
 static void
 check1 (void)
 {
-  char s[] __attribute__((aligned(16))) = "\xff";
-  char c = '\xfe';
-  char *exp_result = stupid_STRCHR (s, c);
+  CHAR s[] __attribute__((aligned(16))) = L ("\xff");
+  CHAR c = L ('\xfe');
+  CHAR *exp_result = stupid_STRCHR (s, c);
 
   FOR_EACH_IMPL (impl, 0)
     check_result (impl, s, c, exp_result);

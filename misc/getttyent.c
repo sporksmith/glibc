@@ -44,10 +44,9 @@ static char zapchar;
 static FILE *tf;
 
 struct ttyent *
-getttynam(tty)
-	const char *tty;
+getttynam (const char *tty)
 {
-	register struct ttyent *t;
+	struct ttyent *t;
 
 	setttyent();
 	while ((t = getttyent()))
@@ -61,11 +60,11 @@ static char *skip (char *) __THROW internal_function;
 static char *value (char *) __THROW internal_function;
 
 struct ttyent *
-getttyent()
+getttyent (void)
 {
 	static struct ttyent tty;
-	register int c;
-	register char *p;
+	int c;
+	char *p;
 #define	MAXLINELENGTH	100
 	static char line[MAXLINELENGTH];
 
@@ -141,11 +140,10 @@ libc_hidden_def (getttyent)
  */
 static char *
 internal_function
-skip(p)
-	register char *p;
+skip (char *p)
 {
-	register char *t;
-	register int c, q;
+	char *t;
+	int c, q;
 
 	for (q = 0, t = p; (c = *p) != '\0'; p++) {
 		if (c == '"') {
@@ -176,15 +174,14 @@ skip(p)
 
 static char *
 internal_function
-value(p)
-	register char *p;
+value (char *p)
 {
 
 	return ((p = index(p, '=')) ? ++p : NULL);
 }
 
 int
-setttyent()
+setttyent (void)
 {
 
 	if (tf) {
@@ -200,7 +197,7 @@ setttyent()
 libc_hidden_def (setttyent)
 
 int
-endttyent()
+endttyent (void)
 {
 	int rval;
 

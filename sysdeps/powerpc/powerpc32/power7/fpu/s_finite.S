@@ -54,9 +54,8 @@ ENTRY (__finite)
 	stfd    fp1,8(r1)     /* Transfer FP to GPR's.  */
 
 	ori	2,2,0	      /* Force a new dispatch group.  */
-	lhz     r0,8(r1)      /* Fetch the upper portion of the high word of
-			      the FP value (where the exponent and sign bits
-			      are).  */
+	lhz	r0,8+HISHORT(r1) /* Fetch the upper 16 bits of the FP value
+				    (biased exponent and sign bit).  */
 	clrlwi	r0,r0,17      /* r0 = abs(r0).  */
 	addi	r1,r1,16      /* Reset the stack pointer.  */
 	cmpwi	cr7,r0,0x7ff0 /* r4 == 0x7ff0?.  */
@@ -79,7 +78,7 @@ strong_alias (__finite, __finitel)
 weak_alias (__finite, finitel)
 #endif
 
-#ifdef IS_IN_libm
+#if IS_IN (libm)
 # if LONG_DOUBLE_COMPAT (libm, GLIBC_2_0)
 compat_symbol (libm, finite, finitel, GLIBC_2_0)
 # endif

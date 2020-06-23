@@ -36,9 +36,8 @@
 #define SBA(sb, v) (*(long32*)((char*)(sb)+(v)))
 
 void
-_ufc_doit_r(itr, __data, res)
-     ufc_long itr, *res;
-     struct crypt_data * __restrict __data;
+_ufc_doit_r (ufc_long itr, struct crypt_data * __restrict __data,
+	     ufc_long *res)
 {
   int i;
   long32 s, *k;
@@ -82,14 +81,13 @@ _ufc_doit_r(itr, __data, res)
 #define SBA(sb, v) (*(long64*)((char*)(sb)+(v)))
 
 void
-_ufc_doit_r(itr, __data, res)
-     ufc_long itr, *res;
-     struct crypt_data * __restrict __data;
+_ufc_doit_r (ufc_long itr, struct crypt_data * __restrict __data,
+	     ufc_long *res)
 {
   int i;
   long64 l, r, s, *k;
-  register long64 *sb01 = (long64*)__data->sb0;
-  register long64 *sb23 = (long64*)__data->sb2;
+  long64 *sb01 = (long64*)__data->sb0;
+  long64 *sb23 = (long64*)__data->sb2;
 
   l = (((long64)res[0]) << 32) | ((long64)res[1]);
   r = (((long64)res[2]) << 32) | ((long64)res[3]);

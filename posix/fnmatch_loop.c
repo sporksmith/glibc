@@ -37,17 +37,11 @@ static const CHAR *END (const CHAR *patternp) internal_function;
 
 static int
 internal_function
-FCT (pattern, string, string_end, no_leading_period, flags, ends, alloca_used)
-     const CHAR *pattern;
-     const CHAR *string;
-     const CHAR *string_end;
-     int no_leading_period;
-     int flags;
-     struct STRUCT *ends;
-     size_t alloca_used;
+FCT (const CHAR *pattern, const CHAR *string, const CHAR *string_end,
+     int no_leading_period, int flags, struct STRUCT *ends, size_t alloca_used)
 {
-  register const CHAR *p = pattern, *n = string;
-  register UCHAR c;
+  const CHAR *p = pattern, *n = string;
+  UCHAR c;
 #ifdef _LIBC
 # if WIDE_CHAR_VERSION
   const char *collseq = (const char *)
@@ -236,7 +230,7 @@ FCT (pattern, string, string_end, no_leading_period, flags, ends, alloca_used)
 	    /* Nonzero if the sense of the character class is inverted.  */
 	    const CHAR *p_init = p;
 	    const CHAR *n_init = n;
-	    register int not;
+	    int not;
 	    CHAR cold;
 	    UCHAR fn;
 
@@ -342,7 +336,12 @@ FCT (pattern, string, string_end, no_leading_period, flags, ends, alloca_used)
 #ifdef _LIBC
 		else if (c == L('[') && *p == L('='))
 		  {
-		    UCHAR str[1];
+		    /* It's important that STR be a scalar variable rather
+		       than a one-element array, because GCC (at least 4.9.2
+		       -O2 on x86-64) can be confused by the array and
+		       diagnose a "used initialized" in a dead branch in the
+		       findidx function.  */
+		    UCHAR str;
 		    uint32_t nrules =
 		      _NL_CURRENT_WORD (LC_COLLATE, _NL_COLLATE_NRULES);
 		    const CHAR *startp = p;
@@ -354,7 +353,7 @@ FCT (pattern, string, string_end, no_leading_period, flags, ends, alloca_used)
 			c = L('[');
 			goto normal_bracket;
 		      }
-		    str[0] = c;
+		    str = c;
 
 		    c = *++p;
 		    if (c != L('=') || p[1] != L(']'))
@@ -367,7 +366,7 @@ FCT (pattern, string, string_end, no_leading_period, flags, ends, alloca_used)
 
 		    if (nrules == 0)
 		      {
-			if ((UCHAR) *n == str[0])
+			if ((UCHAR) *n == str)
 			  goto matched;
 		      }
 		    else
@@ -382,7 +381,7 @@ FCT (pattern, string, string_end, no_leading_period, flags, ends, alloca_used)
 # endif
 			const int32_t *indirect;
 			int32_t idx;
-			const UCHAR *cp = (const UCHAR *) str;
+			const UCHAR *cp = (const UCHAR *) &str;
 
 			/* This #include defines a local function!  */
 # if WIDE_CHAR_VERSION
@@ -503,7 +502,7 @@ FCT (pattern, string, string_end, no_leading_period, flags, ends, alloca_used)
 			  {
 			    int32_t table_size;
 			    const int32_t *symb_table;
-# ifdef WIDE_CHAR_VERSION
+# if WIDE_CHAR_VERSION
 			    char str[c1];
 			    unsigned int strcnt;
 # else
@@ -515,7 +514,7 @@ FCT (pattern, string, string_end, no_leading_period, flags, ends, alloca_used)
 			    int32_t second;
 			    int32_t hash;
 
-# ifdef WIDE_CHAR_VERSION
+# if WIDE_CHAR_VERSION
 			    /* We have to convert the name to a single-byte
 			       string.  This is possible since the names
 			       consist of ASCII characters and the internal
@@ -570,7 +569,7 @@ FCT (pattern, string, string_end, no_leading_period, flags, ends, alloca_used)
 			      {
 				/* Compare the byte sequence but only if
 				   this is not part of a range.  */
-# ifdef WIDE_CHAR_VERSION
+# if WIDE_CHAR_VERSION
 				int32_t *wextra;
 
 				idx += 1 + extra[idx];
@@ -582,7 +581,7 @@ FCT (pattern, string, string_end, no_leading_period, flags, ends, alloca_used)
 
 				if (! is_range)
 				  {
-# ifdef WIDE_CHAR_VERSION
+# if WIDE_CHAR_VERSION
 				    for (c1 = 0;
 					 (int32_t) c1 < wextra[idx];
 					 ++c1)
@@ -603,7 +602,7 @@ FCT (pattern, string, string_end, no_leading_period, flags, ends, alloca_used)
 
 				/* Get the collation sequence value.  */
 				is_seqval = 1;
-# ifdef WIDE_CHAR_VERSION
+# if WIDE_CHAR_VERSION
 				cold = wextra[1 + wextra[idx]];
 # else
 				/* Adjust for the alignment.  */
@@ -666,7 +665,7 @@ FCT (pattern, string, string_end, no_leading_period, flags, ends, alloca_used)
 			uint32_t lcollseq;
 			UCHAR cend = *p++;
 
-# ifdef WIDE_CHAR_VERSION
+# if WIDE_CHAR_VERSION
 			/* Search in the `names' array for the characters.  */
 			fcollseq = __collseq_table_lookup (collseq, fn);
 			if (fcollseq == ~((uint32_t) 0))
@@ -721,7 +720,7 @@ FCT (pattern, string, string_end, no_leading_period, flags, ends, alloca_used)
 			      {
 				int32_t table_size;
 				const int32_t *symb_table;
-# ifdef WIDE_CHAR_VERSION
+# if WIDE_CHAR_VERSION
 				char str[c1];
 				unsigned int strcnt;
 # else
@@ -733,7 +732,7 @@ FCT (pattern, string, string_end, no_leading_period, flags, ends, alloca_used)
 				int32_t second;
 				int32_t hash;
 
-# ifdef WIDE_CHAR_VERSION
+# if WIDE_CHAR_VERSION
 				/* We have to convert the name to a single-byte
 				   string.  This is possible since the names
 				   consist of ASCII characters and the internal
@@ -788,7 +787,7 @@ FCT (pattern, string, string_end, no_leading_period, flags, ends, alloca_used)
 				  {
 				    /* Compare the byte sequence but only if
 				       this is not part of a range.  */
-# ifdef WIDE_CHAR_VERSION
+# if WIDE_CHAR_VERSION
 				    int32_t *wextra;
 
 				    idx += 1 + extra[idx];
@@ -799,7 +798,7 @@ FCT (pattern, string, string_end, no_leading_period, flags, ends, alloca_used)
 # endif
 				    /* Get the collation sequence value.  */
 				    is_seqval = 1;
-# ifdef WIDE_CHAR_VERSION
+# if WIDE_CHAR_VERSION
 				    cend = wextra[1 + wextra[idx]];
 # else
 				    /* Adjust for the alignment.  */
@@ -831,7 +830,7 @@ FCT (pattern, string, string_end, no_leading_period, flags, ends, alloca_used)
 			   characters which are not mentioned in the
 			   collation specification.  */
 			if (
-# ifdef WIDE_CHAR_VERSION
+# if WIDE_CHAR_VERSION
 			    lcollseq == 0xffffffff ||
 # endif
 			    lcollseq <= fcollseq)
@@ -843,7 +842,7 @@ FCT (pattern, string, string_end, no_leading_period, flags, ends, alloca_used)
 			      hcollseq = cend;
 			    else
 			      {
-# ifdef WIDE_CHAR_VERSION
+# if WIDE_CHAR_VERSION
 				hcollseq =
 				  __collseq_table_lookup (collseq, cend);
 				if (hcollseq == ~((uint32_t) 0))
@@ -864,7 +863,7 @@ FCT (pattern, string, string_end, no_leading_period, flags, ends, alloca_used)
 			    if (lcollseq <= hcollseq && fcollseq <= hcollseq)
 			      goto matched;
 			  }
-# ifdef WIDE_CHAR_VERSION
+# if WIDE_CHAR_VERSION
 		      range_not_matched:
 # endif
 #else
@@ -898,11 +897,8 @@ FCT (pattern, string, string_end, no_leading_period, flags, ends, alloca_used)
 
 	  matched:
 	    /* Skip the rest of the [...] that already matched.  */
-	    do
+	    while ((c = *p++) != L (']'))
 	      {
-	      ignore_next:
-		c = *p++;
-
 		if (c == L('\0'))
 		  /* [... (unterminated) loses.  */
 		  return FNM_NOMATCH;
@@ -930,12 +926,11 @@ FCT (pattern, string, string_end, no_leading_period, flags, ends, alloca_used)
 
 			if (c < L('a') || c >= L('z'))
 			  {
-			    p = startp;
-			    goto ignore_next;
+			    p = startp - 2;
+			    break;
 			  }
 		      }
 		    p += 2;
-		    c = *p++;
 		  }
 		else if (c == L('[') && *p == L('='))
 		  {
@@ -946,25 +941,21 @@ FCT (pattern, string, string_end, no_leading_period, flags, ends, alloca_used)
 		    if (c != L('=') || p[1] != L(']'))
 		      return FNM_NOMATCH;
 		    p += 2;
-		    c = *p++;
 		  }
 		else if (c == L('[') && *p == L('.'))
 		  {
-		    ++p;
 		    while (1)
 		      {
 			c = *++p;
-			if (c == '\0')
+			if (c == L('\0'))
 			  return FNM_NOMATCH;
 
-			if (*p == L('.') && p[1] == L(']'))
+			if (c == L('.') && p[1] == L(']'))
 			  break;
 		      }
 		    p += 2;
-		    c = *p++;
 		  }
 	      }
-	    while (c != L(']'));
 	    if (not)
 	      return FNM_NOMATCH;
 	  }
@@ -1044,7 +1035,12 @@ END (const CHAR *pattern)
       }
     else if ((*p == L('?') || *p == L('*') || *p == L('+') || *p == L('@')
 	      || *p == L('!')) && p[1] == L('('))
-      p = END (p + 1);
+      {
+	p = END (p + 1);
+	if (*p == L('\0'))
+	  /* This is an invalid pattern.  */
+	  return pattern;
+      }
     else if (*p == L(')'))
       break;
 
@@ -1282,3 +1278,4 @@ EXT (INT opt, const CHAR *pattern, const CHAR *string, const CHAR *string_end,
 #undef STRCAT
 #undef L
 #undef BTOWC
+#undef WIDE_CHAR_VERSION

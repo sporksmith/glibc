@@ -17,8 +17,6 @@
    <http://www.gnu.org/licenses/>.  */
 
 #include <sysdep.h>
-#include <bp-sym.h>
-#include <bp-asm.h>
 
 /* __ptr_t [r3] memset (__ptr_t s [r3], int c [r4], size_t n [r5]));
    Returns 's'.
@@ -28,7 +26,7 @@
    to 0, to take advantage of the dcbz instruction.  */
 
 	.machine power6
-EALIGN (BP_SYM (memset), 7, 0)
+EALIGN (memset, 7, 0)
 	CALL_MCOUNT
 
 #define rTMP	r0
@@ -50,7 +48,7 @@ L(_memset):
 	ble-	cr1, L(small)
 /* Align to word boundary.  */
 	cmplwi	cr5, rLEN, 31
-	rlwimi	rCHR, rCHR, 8, 16, 23 /* Replicate byte to halfword.  */
+	insrwi	rCHR, rCHR, 8, 16	/* Replicate byte to halfword.  */
 	beq+	L(aligned)
 	mtcrf	0x01, rMEMP0
 	subfic	rALIGN, rALIGN, 4
@@ -66,7 +64,7 @@ L(g0):
 /* Handle the case of size < 31.  */
 L(aligned):
 	mtcrf	0x01, rLEN
-	rlwimi	rCHR, rCHR, 16, 0, 15 /* Replicate halfword to word.  */
+	insrwi	rCHR, rCHR, 16, 0	/* Replicate halfword to word.  */
 	ble	cr5, L(medium)
 /* Align to 32-byte boundary.  */
 	andi.	rALIGN, rMEMP, 0x1C
@@ -230,7 +228,7 @@ L(nzCacheAligned128):
 	ori	r1,r1,0
         stw     rCHR,60(rMEMP3)
 	blt	cr6,L(cacheAligned1)
-#ifndef NOT_IN_libc
+#if IS_IN (libc)
 	lfd	0,-128(rMEMP)
 #endif
 	b	L(nzCacheAligned256)
@@ -238,7 +236,7 @@ L(nzCacheAligned128):
 L(nzCacheAligned256):
 	cmplwi	cr1,rLEN,256
 	addi	rMEMP3,rMEMP,64
-#ifdef NOT_IN_libc
+#if !IS_IN (libc)
 /* When we are not in libc we should use only GPRs to avoid the FPU lock
    interrupt.  */
 	stw	rCHR,0(rMEMP)
@@ -396,7 +394,7 @@ L(cacheAlignedx):
 /* A simple loop for the longer (>640 bytes) lengths.  This form limits
    the branch miss-predicted to exactly 1 at loop exit.*/
 L(cacheAligned512):
-	cmpli	cr1,rLEN,128
+	cmplwi	cr1,rLEN,128
 	blt	cr1,L(cacheAligned1)
 	dcbz	0,rMEMP
 	addi	rLEN,rLEN,-128
@@ -537,5 +535,5 @@ L(medium_28t):
         stw     rCHR, -4(rMEMP)
 	stw	rCHR, -8(rMEMP)
 	blr
-END (BP_SYM (memset))
+END (memset)
 libc_hidden_builtin_def (memset)

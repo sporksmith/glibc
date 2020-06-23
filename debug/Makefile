@@ -89,31 +89,21 @@ CFLAGS-tst-longjmp_chk2.c = -fexceptions -fasynchronous-unwind-tables
 CPPFLAGS-tst-longjmp_chk2.c = -D_FORTIFY_SOURCE=1
 
 # We know these tests have problems with format strings, this is what
-# we are testing.  Disable that warning.
-CFLAGS-tst-chk1.c = -Wno-format
-CFLAGS-tst-chk2.c = -Wno-format
-CFLAGS-tst-chk3.c = -Wno-format
-CFLAGS-tst-chk4.cc = -Wno-format
-CFLAGS-tst-chk5.cc = -Wno-format
-CFLAGS-tst-chk6.cc = -Wno-format
-CFLAGS-tst-lfschk1.c = -Wno-format
-CFLAGS-tst-lfschk2.c = -Wno-format
-CFLAGS-tst-lfschk3.c = -Wno-format
-CFLAGS-tst-lfschk4.cc = -Wno-format
-CFLAGS-tst-lfschk5.cc = -Wno-format
-CFLAGS-tst-lfschk6.cc = -Wno-format
-tst-chk1-ENV = LOCPATH=$(common-objpfx)localedata
-tst-chk2-ENV = LOCPATH=$(common-objpfx)localedata
-tst-chk3-ENV = LOCPATH=$(common-objpfx)localedata
-tst-chk4-ENV = LOCPATH=$(common-objpfx)localedata
-tst-chk5-ENV = LOCPATH=$(common-objpfx)localedata
-tst-chk6-ENV = LOCPATH=$(common-objpfx)localedata
-tst-lfschk1-ENV = LOCPATH=$(common-objpfx)localedata
-tst-lfschk2-ENV = LOCPATH=$(common-objpfx)localedata
-tst-lfschk3-ENV = LOCPATH=$(common-objpfx)localedata
-tst-lfschk4-ENV = LOCPATH=$(common-objpfx)localedata
-tst-lfschk5-ENV = LOCPATH=$(common-objpfx)localedata
-tst-lfschk6-ENV = LOCPATH=$(common-objpfx)localedata
+# we are testing.  Disable that warning.  They also generate warnings
+# from warning attributes, which cannot be disabled via pragmas, so
+# require -Wno-error to be used.
+CFLAGS-tst-chk1.c = -Wno-format -Wno-error
+CFLAGS-tst-chk2.c = -Wno-format -Wno-error
+CFLAGS-tst-chk3.c = -Wno-format -Wno-error
+CFLAGS-tst-chk4.cc = -Wno-format -Wno-error
+CFLAGS-tst-chk5.cc = -Wno-format -Wno-error
+CFLAGS-tst-chk6.cc = -Wno-format -Wno-error
+CFLAGS-tst-lfschk1.c = -Wno-format -Wno-error
+CFLAGS-tst-lfschk2.c = -Wno-format -Wno-error
+CFLAGS-tst-lfschk3.c = -Wno-format -Wno-error
+CFLAGS-tst-lfschk4.cc = -Wno-format -Wno-error
+CFLAGS-tst-lfschk5.cc = -Wno-format -Wno-error
+CFLAGS-tst-lfschk6.cc = -Wno-format -Wno-error
 LDLIBS-tst-chk4 = -lstdc++
 LDLIBS-tst-chk5 = -lstdc++
 LDLIBS-tst-chk6 = -lstdc++
@@ -171,13 +161,3 @@ $(objpfx)xtrace: xtrace.sh
 	    -e 's|@PKGVERSION@|$(PKGVERSION)|' \
 	    -e 's|@REPORT_BUGS_TO@|$(REPORT_BUGS_TO)|' $^ > $@.new \
 	&& rm -f $@ && mv $@.new $@ && chmod +x $@
-
-# Depend on libc.so so a DT_NEEDED is generated in the shared objects.
-# This ensures they will load libc.so for needed symbols if loaded by
-# a statically-linked program that hasn't already loaded it.
-$(objpfx)libSegFault.so: $(common-objpfx)libc.so \
-			 $(common-objpfx)libc_nonshared.a \
-			 $(elf-objpfx)$(rtld-installed-name)
-$(objpfx)libpcprofile.so: $(common-objpfx)libc.so \
-			  $(common-objpfx)libc_nonshared.a \
-			  $(elf-objpfx)$(rtld-installed-name)

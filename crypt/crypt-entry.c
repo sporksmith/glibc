@@ -81,10 +81,8 @@ extern struct crypt_data _ufc_foobar;
  */
 
 char *
-__crypt_r (key, salt, data)
-     const char *key;
-     const char *salt;
-     struct crypt_data * __restrict data;
+__crypt_r (const char *key, const char *salt,
+	   struct crypt_data * __restrict data)
 {
   ufc_long res[4];
   char ktab[9];
@@ -158,9 +156,7 @@ __crypt_r (key, salt, data)
 weak_alias (__crypt_r, crypt_r)
 
 char *
-crypt (key, salt)
-     const char *key;
-     const char *salt;
+crypt (const char *key, const char *salt)
 {
 #ifdef _LIBC
   /* Try to find out whether we have to use MD5 encryption replacement.  */
@@ -190,9 +186,7 @@ crypt (key, salt)
 weak_alias (crypt, fcrypt)
 #else
 char *
-__fcrypt (key, salt)
-     const char *key;
-     const char *salt;
+__fcrypt (const char *key, const char *salt)
 {
   return crypt (key, salt);
 }

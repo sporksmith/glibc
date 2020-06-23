@@ -30,9 +30,9 @@
 #include <shlib-compat.h>
 
 /* Prototyped for local functions.  */
-static _IO_ssize_t _IO_cookie_read (register _IO_FILE* fp, void* buf,
+static _IO_ssize_t _IO_cookie_read (_IO_FILE* fp, void* buf,
 				    _IO_ssize_t size);
-static _IO_ssize_t _IO_cookie_write (register _IO_FILE* fp,
+static _IO_ssize_t _IO_cookie_write (_IO_FILE* fp,
 				     const void* buf, _IO_ssize_t size);
 static _IO_off64_t _IO_cookie_seek (_IO_FILE *fp, _IO_off64_t offset, int dir);
 static _IO_off64_t _IO_cookie_seekoff (_IO_FILE *fp, _IO_off64_t offset,
@@ -40,34 +40,32 @@ static _IO_off64_t _IO_cookie_seekoff (_IO_FILE *fp, _IO_off64_t offset,
 static int _IO_cookie_close (_IO_FILE* fp);
 
 static _IO_ssize_t
-_IO_cookie_read (fp, buf, size)
-     _IO_FILE *fp;
-     void *buf;
-     _IO_ssize_t size;
+_IO_cookie_read (_IO_FILE *fp, void *buf, _IO_ssize_t size)
 {
   struct _IO_cookie_file *cfile = (struct _IO_cookie_file *) fp;
+  cookie_read_function_t *read_cb = cfile->__io_functions.read;
+  PTR_DEMANGLE (read_cb);
 
-  if (cfile->__io_functions.read == NULL)
+  if (read_cb == NULL)
     return -1;
 
-  return cfile->__io_functions.read (cfile->__cookie, buf, size);
+  return read_cb (cfile->__cookie, buf, size);
 }
 
 static _IO_ssize_t
-_IO_cookie_write (fp, buf, size)
-     _IO_FILE *fp;
-     const void *buf;
-     _IO_ssize_t size;
+_IO_cookie_write (_IO_FILE *fp, const void *buf, _IO_ssize_t size)
 {
   struct _IO_cookie_file *cfile = (struct _IO_cookie_file *) fp;
+  cookie_write_function_t *write_cb = cfile->__io_functions.write;
+  PTR_DEMANGLE (write_cb);
 
-  if (cfile->__io_functions.write == NULL)
+  if (write_cb == NULL)
     {
       fp->_flags |= _IO_ERR_SEEN;
       return 0;
     }
 
-  _IO_ssize_t n = cfile->__io_functions.write (cfile->__cookie, buf, size);
+  _IO_ssize_t n = write_cb (cfile->__cookie, buf, size);
   if (n < size)
     fp->_flags |= _IO_ERR_SEEN;
 
@@ -75,39 +73,35 @@ _IO_cookie_write (fp, buf, size)
 }
 
 static _IO_off64_t
-_IO_cookie_seek (fp, offset, dir)
-     _IO_FILE *fp;
-     _IO_off64_t offset;
-     int dir;
+_IO_cookie_seek (_IO_FILE *fp, _IO_off64_t offset, int dir)
 {
   struct _IO_cookie_file *cfile = (struct _IO_cookie_file *) fp;
+  cookie_seek_function_t *seek_cb = cfile->__io_functions.seek;
+  PTR_DEMANGLE (seek_cb);
 
-  return ((cfile->__io_functions.seek == NULL
-	   || (cfile->__io_functions.seek (cfile->__cookie, &offset, dir)
+  return ((seek_cb == NULL
+	   || (seek_cb (cfile->__cookie, &offset, dir)
 	       == -1)
 	   || offset == (_IO_off64_t) -1)
 	  ? _IO_pos_BAD : offset);
 }
 
 static int
-_IO_cookie_close (fp)
-     _IO_FILE *fp;
+_IO_cookie_close (_IO_FILE *fp)
 {
   struct _IO_cookie_file *cfile = (struct _IO_cookie_file *) fp;
+  cookie_close_function_t *close_cb = cfile->__io_functions.close;
+  PTR_DEMANGLE (close_cb);
 
-  if (cfile->__io_functions.close == NULL)
+  if (close_cb == NULL)
     return 0;
 
-  return cfile->__io_functions.close (cfile->__cookie);
+  return close_cb (cfile->__cookie);
 }
 
 
 static _IO_off64_t
-_IO_cookie_seekoff (fp, offset, dir, mode)
-     _IO_FILE *fp;
-     _IO_off64_t offset;
-     int dir;
-     int mode;
+_IO_cookie_seekoff (_IO_FILE *fp, _IO_off64_t offset, int dir, int mode)
 {
   /* We must force the fileops code to always use seek to determine
      the position.  */
@@ -116,7 +110,7 @@ _IO_cookie_seekoff (fp, offset, dir, mode)
 }
 
 
-static const struct _IO_jump_t _IO_cookie_jumps = {
+static const struct _IO_jump_t _IO_cookie_jumps libio_vtable = {
   JUMP_INIT_DUMMY,
   JUMP_INIT(finish, _IO_file_finish),
   JUMP_INIT(overflow, _IO_file_overflow),
@@ -140,17 +134,30 @@ static const struct _IO_jump_t _IO_cookie_jumps = {
 };
 
 
+/* Copy the callbacks from SOURCE to *TARGET, with pointer
+   mangling.  */
+static void
+set_callbacks (_IO_cookie_io_functions_t *target,
+	       _IO_cookie_io_functions_t source)
+{
+  PTR_MANGLE (source.read);
+  PTR_MANGLE (source.write);
+  PTR_MANGLE (source.seek);
+  PTR_MANGLE (source.close);
+  *target = source;
+}
+
 void
 _IO_cookie_init (struct _IO_cookie_file *cfile, int read_write,
 		 void *cookie, _IO_cookie_io_functions_t io_functions)
 {
-  _IO_init (&cfile->__fp.file, 0);
+  _IO_init_internal (&cfile->__fp.file, 0);
   _IO_JUMPS (&cfile->__fp) = &_IO_cookie_jumps;
 
   cfile->__cookie = cookie;
-  cfile->__io_functions = io_functions;
+  set_callbacks (&cfile->__io_functions, io_functions);
 
-  _IO_file_init (&cfile->__fp);
+  _IO_new_file_init_internal (&cfile->__fp);
 
   _IO_mask_flags (&cfile->__fp.file, read_write,
 		  _IO_NO_READS+_IO_NO_WRITES+_IO_IS_APPENDING);
@@ -163,10 +170,8 @@ _IO_cookie_init (struct _IO_cookie_file *cfile, int read_write,
 
 
 _IO_FILE *
-_IO_fopencookie (cookie, mode, io_functions)
-     void *cookie;
-     const char *mode;
-     _IO_cookie_io_functions_t io_functions;
+_IO_fopencookie (void *cookie, const char *mode,
+		 _IO_cookie_io_functions_t io_functions)
 {
   int read_write;
   struct locked_FILE
@@ -217,25 +222,22 @@ _IO_FILE * _IO_old_fopencookie (void *cookie, const char *mode,
 
 static _IO_off64_t
 attribute_compat_text_section
-_IO_old_cookie_seek (fp, offset, dir)
-     _IO_FILE *fp;
-     _IO_off64_t offset;
-     int dir;
+_IO_old_cookie_seek (_IO_FILE *fp, _IO_off64_t offset, int dir)
 {
   struct _IO_cookie_file *cfile = (struct _IO_cookie_file *) fp;
-  int (*seek) (_IO_FILE *, _IO_off_t, int);
-  int ret;
+  int (*seek_cb) (_IO_FILE *, _IO_off_t, int)
+    = (int (*) (_IO_FILE *, _IO_off_t, int)) cfile->__io_functions.seek;;
+  PTR_DEMANGLE (seek_cb);
 
-  seek = (int (*)(_IO_FILE *, _IO_off_t, int)) cfile->__io_functions.seek;
-  if (seek == NULL)
+  if (seek_cb == NULL)
     return _IO_pos_BAD;
 
-  ret = seek (cfile->__cookie, offset, dir);
+  int ret = seek_cb (cfile->__cookie, offset, dir);
 
   return (ret == -1) ? _IO_pos_BAD : ret;
 }
 
-static const struct _IO_jump_t _IO_old_cookie_jumps = {
+static const struct _IO_jump_t _IO_old_cookie_jumps libio_vtable = {
   JUMP_INIT_DUMMY,
   JUMP_INIT(finish, _IO_file_finish),
   JUMP_INIT(overflow, _IO_file_overflow),
@@ -260,10 +262,8 @@ static const struct _IO_jump_t _IO_old_cookie_jumps = {
 
 _IO_FILE *
 attribute_compat_text_section
-_IO_old_fopencookie (cookie, mode, io_functions)
-     void *cookie;
-     const char *mode;
-     _IO_cookie_io_functions_t io_functions;
+_IO_old_fopencookie (void *cookie, const char *mode,
+		     _IO_cookie_io_functions_t io_functions)
 {
   _IO_FILE *ret;
 

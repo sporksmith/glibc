@@ -20,8 +20,6 @@
 #include <xlocale.h>
 
 extern double ____strtod_l_internal (const char *, char **, int, __locale_t);
-extern unsigned long long int ____strtoull_l_internal (const char *, char **,
-						       int, int, __locale_t);
 
 /* Configuration part.  These macros are defined by `strtold.c',
    `strtof.c', `wcstod.c', `wcstold.c', and `wcstof.c' to produce the
@@ -33,28 +31,20 @@ extern unsigned long long int ____strtoull_l_internal (const char *, char **,
 # ifdef USE_WIDE_CHAR
 #  define STRTOF	wcstod_l
 #  define __STRTOF	__wcstod_l
+#  define STRTOF_NAN	__wcstod_nan
 # else
 #  define STRTOF	strtod_l
 #  define __STRTOF	__strtod_l
+#  define STRTOF_NAN	__strtod_nan
 # endif
 # define MPN2FLOAT	__mpn_construct_double
 # define FLOAT_HUGE_VAL	HUGE_VAL
-# define SET_MANTISSA(flt, mant) \
-  do { union ieee754_double u;						      \
-       u.d = (flt);							      \
-       if ((mant & 0xfffffffffffffULL) == 0)				      \
-	 mant = 0x8000000000000ULL;					      \
-       u.ieee.mantissa0 = ((mant) >> 32) & 0xfffff;			      \
-       u.ieee.mantissa1 = (mant) & 0xffffffff;				      \
-       (flt) = u.d;							      \
-  } while (0)
 #endif
 /* End of configuration part.  */
 
 #include <ctype.h>
 #include <errno.h>
 #include <float.h>
-#include <ieee754.h>
 #include "../locale/localeinfo.h"
 #include <locale.h>
 #include <math.h>
@@ -105,7 +95,6 @@ extern unsigned long long int ____strtoull_l_internal (const char *, char **,
 # define TOLOWER_C(Ch) __towlower_l ((Ch), _nl_C_locobj_ptr)
 # define STRNCASECMP(S1, S2, N) \
   __wcsncasecmp_l ((S1), (S2), (N), _nl_C_locobj_ptr)
-# define STRTOULL(S, E, B) ____wcstoull_l_internal ((S), (E), (B), 0, loc)
 #else
 # define STRING_TYPE char
 # define CHAR_TYPE char
@@ -117,7 +106,6 @@ extern unsigned long long int ____strtoull_l_internal (const char *, char **,
 # define TOLOWER_C(Ch) __tolower_l ((Ch), _nl_C_locobj_ptr)
 # define STRNCASECMP(S1, S2, N) \
   __strncasecmp_l ((S1), (S2), (N), _nl_C_locobj_ptr)
-# define STRTOULL(S, E, B) ____strtoull_l_internal ((S), (E), (B), 0, loc)
 #endif
 
 
@@ -484,11 +472,8 @@ __mpn_lshift_1 (mp_limb_t *ptr, mp_size_t size, unsigned int count,
    return 0.0.  If the number is too big to be represented, set `errno' to
    ERANGE and return HUGE_VAL with the appropriate sign.  */
 FLOAT
-____STRTOF_INTERNAL (nptr, endptr, group, loc)
-     const STRING_TYPE *nptr;
-     STRING_TYPE **endptr;
-     int group;
-     __locale_t loc;
+____STRTOF_INTERNAL (const STRING_TYPE *nptr, STRING_TYPE **endptr, int group,
+		     __locale_t loc)
 {
   int negative;			/* The sign of the number.  */
   MPN_VAR (num);		/* MP representation of the number.  */
@@ -649,33 +634,14 @@ ____STRTOF_INTERNAL (nptr, endptr, group, loc)
 	  if (*cp == L_('('))
 	    {
 	      const STRING_TYPE *startp = cp;
-	      do
-		++cp;
-	      while ((*cp >= L_('0') && *cp <= L_('9'))
-		     || ({ CHAR_TYPE lo = TOLOWER (*cp);
-			   lo >= L_('a') && lo <= L_('z'); })
-		     || *cp == L_('_'));
-
-	      if (*cp != L_(')'))
-		/* The closing brace is missing.  Only match the NAN
-		   part.  */
-		cp = startp;
+	      STRING_TYPE *endp;
+	      retval = STRTOF_NAN (cp + 1, &endp, L_(')'));
+	      if (*endp == L_(')'))
+		/* Consume the closing parenthesis.  */
+		cp = endp + 1;
 	      else
-		{
-		  /* This is a system-dependent way to specify the
-		     bitmask used for the NaN.  We expect it to be
-		     a number which is put in the mantissa of the
-		     number.  */
-		  STRING_TYPE *endp;
-		  unsigned long long int mant;
-
-		  mant = STRTOULL (startp + 1, &endp, 0);
-		  if (endp == cp)
-		    SET_MANTISSA (retval, mant);
-
-		  /* Consume the closing brace.  */
-		  ++cp;
-		}
+		/* Only match the NAN part.  */
+		cp = startp;
 	    }
 
 	  if (endptr != NULL)
@@ -1173,10 +1139,9 @@ ____STRTOF_INTERNAL (nptr, endptr, group, loc)
      really integer digits or belong to the fractional part; i.e. we normalize
      123e-2 to 1.23.  */
   {
-    register intmax_t incr = (exponent < 0
-			      ? MAX (-(intmax_t) int_no, exponent)
-			      : MIN ((intmax_t) dig_no - (intmax_t) int_no,
-				     exponent));
+    intmax_t incr = (exponent < 0
+		     ? MAX (-(intmax_t) int_no, exponent)
+		     : MIN ((intmax_t) dig_no - (intmax_t) int_no, exponent));
     int_no += incr;
     exponent -= incr;
   }
@@ -1497,7 +1462,7 @@ ____STRTOF_INTERNAL (nptr, endptr, group, loc)
 #define got_limb							      \
 	      if (bits == 0)						      \
 		{							      \
-		  register int cnt;					      \
+		  int cnt;						      \
 		  if (quot == 0)					      \
 		    cnt = BITS_PER_MP_LIMB;				      \
 		  else							      \
@@ -1649,7 +1614,7 @@ ____STRTOF_INTERNAL (nptr, endptr, group, loc)
 	  if (numsize < densize)
 	    {
 	      mp_size_t empty = densize - numsize;
-	      register int i;
+	      int i;
 
 	      if (bits <= 0)
 		exponent -= empty * BITS_PER_MP_LIMB;
@@ -1677,7 +1642,7 @@ ____STRTOF_INTERNAL (nptr, endptr, group, loc)
 		      used = MANT_DIG - bits;
 		      if (used >= BITS_PER_MP_LIMB)
 			{
-			  register int i;
+			  int i;
 			  (void) __mpn_lshift (&retval[used
 						       / BITS_PER_MP_LIMB],
 					       retval,
@@ -1773,10 +1738,7 @@ FLOAT
 #ifdef weak_function
 weak_function
 #endif
-__STRTOF (nptr, endptr, loc)
-     const STRING_TYPE *nptr;
-     STRING_TYPE **endptr;
-     __locale_t loc;
+__STRTOF (const STRING_TYPE *nptr, STRING_TYPE **endptr, __locale_t loc)
 {
   return ____STRTOF_INTERNAL (nptr, endptr, 0, loc);
 }

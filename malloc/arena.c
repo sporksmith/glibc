@@ -40,14 +40,6 @@
    mmap threshold, so that requests with a size just below that
    threshold can be fulfilled without creating too many heaps.  */
 
-
-#ifndef THREAD_STATS
-#define THREAD_STATS 0
-#endif
-
-/* If THREAD_STATS is non-zero, some statistics on mutex locking are
-   computed.  */
-
 /***************************************************************************/
 
 #define top(ar_ptr) ((ar_ptr)->top)
@@ -77,18 +69,29 @@ extern int sanity_check_heap_info_alignment[(sizeof (heap_info)
 /* Thread specific data */
 
 static tsd_key_t arena_key;
-static mutex_t list_lock = MUTEX_INITIALIZER;
-#ifdef PER_THREAD
+
+/* Arena free list.  free_list_lock synchronizes access to the
+   free_list variable below, and the next_free and attached_threads
+   members of struct malloc_state objects.  No other locks must be
+   acquired after free_list_lock has been acquired.  */
+
+static mutex_t free_list_lock = MUTEX_INITIALIZER;
 static size_t narenas = 1;
 static mstate free_list;
-#endif
 
-#if THREAD_STATS
-static int stat_n_heaps;
-#define THREAD_STAT(x) x
-#else
-#define THREAD_STAT(x) do ; while(0)
-#endif
+/* list_lock prevents concurrent writes to the next member of struct
+   malloc_state objects.
+
+   Read access to the next member is supposed to synchronize with the
+   atomic_write_barrier and the write to the next member in
+   _int_new_arena.  This suffers from data races; see the FIXME
+   comments in _int_new_arena and reused_arena.
+
+   list_lock also prevents concurrent forks.  At the time list_lock is
+   acquired, no arena lock must have been acquired, but it is
+   permitted to acquire arena locks subsequently, while list_lock is
+   acquired.  */
+static mutex_t list_lock = MUTEX_INITIALIZER;
 
 /* Mapped memory in non-main arenas (reliable only for NO_THREADS). */
 static unsigned long arena_mem;
@@ -117,21 +120,12 @@ int __malloc_initialized = -1;
   ptr = (mstate)tsd_getspecific(arena_key, vptr); \
 } while(0)
 
-#ifdef PER_THREAD
 # define arena_lock(ptr, size) do { \
-  if(ptr) \
+  if(ptr && !arena_is_corrupt (ptr)) \
     (void)mutex_lock(&ptr->mutex); \
   else \
     ptr = arena_get2(ptr, (size), NULL); \
 } while(0)
-#else
-# define arena_lock(ptr, size) do { \
-  if(ptr && !mutex_trylock(&ptr->mutex)) { \
-    THREAD_STAT(++(ptr->stat_lock_direct)); \
-  } else \
-    ptr = arena_get2(ptr, (size), NULL); \
-} while(0)
-#endif
 
 /* find the heap and corresponding arena for a given ptr */
 
@@ -152,10 +146,6 @@ static __malloc_ptr_t (*save_malloc_hook) (size_t __size,
 static void           (*save_free_hook) (__malloc_ptr_t __ptr,
 					 const __malloc_ptr_t);
 static void*        save_arena;
-
-#ifdef ATFORK_MEM
-ATFORK_MEM;
-#endif
 
 /* Magic value for the thread-specific arena pointer when
    malloc_atfork() is in use.  */
@@ -219,19 +209,24 @@ free_atfork(void* mem, const void *caller)
 /* Counter for number of times the list is locked by the same thread.  */
 static unsigned int atfork_recursive_cntr;
 
-/* The following two functions are registered via thread_atfork() to
-   make sure that the mutexes remain in a consistent state in the
-   fork()ed version of a thread.  Also adapt the malloc and free hooks
-   temporarily, because the `atfork' handler mechanism may use
-   malloc/free internally (e.g. in LinuxThreads). */
+/* The following three functions are called around fork from a
+   multi-threaded process.  We do not use the general fork handler
+   mechanism to make sure that our handlers are the last ones being
+   called, so that other fork handlers can use the malloc
+   subsystem.  */
 
-static void
-ptmalloc_lock_all (void)
+void
+internal_function
+__malloc_fork_lock_parent (void)
 {
   mstate ar_ptr;
 
   if(__malloc_initialized < 1)
     return;
+
+  /* We do not acquire free_list_lock here because we completely
+     reconstruct free_list in __malloc_fork_unlock_child.  */
+
   if (mutex_trylock(&list_lock))
     {
       void *my_arena;
@@ -253,15 +248,19 @@ ptmalloc_lock_all (void)
   save_free_hook = __free_hook;
   __malloc_hook = malloc_atfork;
   __free_hook = free_atfork;
-  /* Only the current thread may perform malloc/free calls now. */
+  /* Only the current thread may perform malloc/free calls now.
+     save_arena will be reattached to the current thread, in
+     __malloc_fork_lock_parent, so save_arena->attached_threads is not
+     updated.  */
   tsd_getspecific(arena_key, save_arena);
   tsd_setspecific(arena_key, ATFORK_ARENA_PTR);
  out:
   ++atfork_recursive_cntr;
 }
 
-static void
-ptmalloc_unlock_all (void)
+void
+internal_function
+__malloc_fork_unlock_parent (void)
 {
   mstate ar_ptr;
 
@@ -269,6 +268,9 @@ ptmalloc_unlock_all (void)
     return;
   if (--atfork_recursive_cntr != 0)
     return;
+  /* Replace ATFORK_ARENA_PTR with save_arena.
+     save_arena->attached_threads was not changed in
+     __malloc_fork_lock_parent and is still correct.  */
   tsd_setspecific(arena_key, save_arena);
   __malloc_hook = save_malloc_hook;
   __free_hook = save_free_hook;
@@ -280,15 +282,9 @@ ptmalloc_unlock_all (void)
   (void)mutex_unlock(&list_lock);
 }
 
-# ifdef __linux__
-
-/* In NPTL, unlocking a mutex in the child process after a
-   fork() is currently unsafe, whereas re-initializing it is safe and
-   does not leak resources.  Therefore, a special atfork handler is
-   installed for the child. */
-
-static void
-ptmalloc_unlock_all2 (void)
+void
+internal_function
+__malloc_fork_unlock_child (void)
 {
   mstate ar_ptr;
 
@@ -297,29 +293,27 @@ ptmalloc_unlock_all2 (void)
   tsd_setspecific(arena_key, save_arena);
   __malloc_hook = save_malloc_hook;
   __free_hook = save_free_hook;
-#ifdef PER_THREAD
+  /* Push all arenas to the free list, except save_arena, which is
+     attached to the current thread.  */
+  mutex_init (&free_list_lock);
+  if (save_arena != NULL)
+    ((mstate) save_arena)->attached_threads = 1;
   free_list = NULL;
-#endif
   for(ar_ptr = &main_arena;;) {
     mutex_init(&ar_ptr->mutex);
-#ifdef PER_THREAD
     if (ar_ptr != save_arena) {
+      /* This arena is no longer attached to any thread.  */
+      ar_ptr->attached_threads = 0;
       ar_ptr->next_free = free_list;
       free_list = ar_ptr;
     }
-#endif
     ar_ptr = ar_ptr->next;
     if(ar_ptr == &main_arena) break;
   }
+
   mutex_init(&list_lock);
   atfork_recursive_cntr = 0;
 }
-
-# else
-
-#  define ptmalloc_unlock_all2 ptmalloc_unlock_all
-
-# endif
 
 #endif  /* !NO_THREADS */
 
@@ -390,7 +384,6 @@ ptmalloc_init (void)
 
   tsd_key_create(&arena_key, NULL);
   tsd_setspecific(arena_key, (void *)&main_arena);
-  thread_atfork(ptmalloc_lock_all, ptmalloc_unlock_all, ptmalloc_unlock_all2);
   const char *s = NULL;
   if (__builtin_expect (_environ != NULL, 1))
     {
@@ -428,13 +421,10 @@ ptmalloc_init (void)
 		{
 		  if (memcmp (envline, "MMAP_MAX_", 9) == 0)
 		    __libc_mallopt(M_MMAP_MAX, atoi(&envline[10]));
-#ifdef PER_THREAD
 		  else if (memcmp (envline, "ARENA_MAX", 9) == 0)
 		    __libc_mallopt(M_ARENA_MAX, atoi(&envline[10]));
-#endif
 		}
 	      break;
-#ifdef PER_THREAD
 	    case 10:
 	      if (! __builtin_expect (__libc_enable_secure, 0))
 		{
@@ -442,7 +432,6 @@ ptmalloc_init (void)
 		    __libc_mallopt(M_ARENA_TEST, atoi(&envline[11]));
 		}
 	      break;
-#endif
 	    case 15:
 	      if (! __builtin_expect (__libc_enable_secure, 0))
 		{
@@ -467,12 +456,6 @@ ptmalloc_init (void)
     (*hook)();
   __malloc_initialized = 1;
 }
-
-/* There are platforms (e.g. Hurd) with a link-time hook mechanism. */
-#ifdef thread_atfork_static
-thread_atfork_static(ptmalloc_lock_all, ptmalloc_unlock_all, \
-		     ptmalloc_unlock_all2)
-#endif
 
 
 
@@ -585,7 +568,7 @@ new_heap(size_t size, size_t top_pad)
   h = (heap_info *)p2;
   h->size = size;
   h->mprotect_size = size;
-  THREAD_STAT(stat_n_heaps++);
+  LIBC_PROBE (memory_heap_new, 2, h, h->size);
   return h;
 }
 
@@ -611,6 +594,7 @@ grow_heap(heap_info *h, long diff)
   }
 
   h->size = new_size;
+  LIBC_PROBE (memory_heap_more, 2, h, h->size);
   return 0;
 }
 
@@ -638,6 +622,7 @@ shrink_heap(heap_info *h, long diff)
   /*fprintf(stderr, "shrink %p %08lx\n", h, new_size);*/
 
   h->size = new_size;
+  LIBC_PROBE (memory_heap_less, 2, h, h->size);
   return 0;
 }
 
@@ -658,7 +643,7 @@ heap_trim(heap_info *heap, size_t pad)
   unsigned long pagesz = GLRO(dl_pagesize);
   mchunkptr top_chunk = top(ar_ptr), p, bck, fwd;
   heap_info *prev_heap;
-  long new_size, top_size, extra, prev_size, misalign;
+  long new_size, top_size, top_area, extra, prev_size, misalign;
 
   /* Can this heap go away completely? */
   while(top_chunk == chunk_at_offset(heap, sizeof(*heap))) {
@@ -679,11 +664,12 @@ heap_trim(heap_info *heap, size_t pad)
       break;
     ar_ptr->system_mem -= heap->size;
     arena_mem -= heap->size;
+    LIBC_PROBE (memory_heap_free, 2, heap, heap->size);
     delete_heap(heap);
     heap = prev_heap;
     if(!prev_inuse(p)) { /* consolidate backward */
       p = prev_chunk(p);
-      unlink(p, bck, fwd);
+      unlink(ar_ptr, p, bck, fwd);
     }
     assert(((unsigned long)((char*)p + new_size) & (pagesz-1)) == 0);
     assert( ((char*)p + new_size) == ((char*)heap + heap->size) );
@@ -691,9 +677,22 @@ heap_trim(heap_info *heap, size_t pad)
     set_head(top_chunk, new_size | PREV_INUSE);
     /*check_chunk(ar_ptr, top_chunk);*/
   }
+
+  /* Uses similar logic for per-thread arenas as the main arena with systrim
+     and _int_free by preserving the top pad and rounding down to the nearest
+     page.  */
   top_size = chunksize(top_chunk);
-  extra = (top_size - pad - MINSIZE - 1) & ~(pagesz - 1);
-  if(extra < (long)pagesz)
+  if ((unsigned long)(top_size) <
+      (unsigned long)(mp_.trim_threshold))
+    return 0;
+
+  top_area = top_size - MINSIZE - 1;
+  if (top_area < 0 || (size_t) top_area <= pad)
+    return 0;
+
+  /* Release in pagesize units and round down to the nearest page.  */
+  extra = ALIGN_DOWN(top_area - pad, pagesz);
+  if (extra == 0)
     return 0;
   /* Try to shrink. */
   if(shrink_heap(heap, extra) != 0)
@@ -707,8 +706,25 @@ heap_trim(heap_info *heap, size_t pad)
   return 1;
 }
 
-/* Create a new arena with initial size "size".  */
 
+/* If REPLACED_ARENA is not NULL, detach it from this thread.  Must be
+   called while free_list_lock is held.  */
+static void
+detach_arena (mstate replaced_arena)
+{
+  if (replaced_arena != NULL)
+    {
+      assert (replaced_arena->attached_threads > 0);
+      /* The current implementation only detaches from main_arena in
+	 case of allocation failure.  This means that it is likely not
+	 beneficial to put the arena on free_list even if the
+	 reference count reaches zero.  */
+      --replaced_arena->attached_threads;
+    }
+}
+
+
+/* Create a new arena with initial size "size".  */
 static mstate
 _int_new_arena(size_t size)
 {
@@ -729,6 +745,7 @@ _int_new_arena(size_t size)
   }
   a = h->ar_ptr = (mstate)(h+1);
   malloc_init_state(a);
+  a->attached_threads = 1;
   /*a->next = NULL;*/
   a->system_mem = a->max_system_mem = h->size;
   arena_mem += h->size;
@@ -741,51 +758,98 @@ _int_new_arena(size_t size)
   top(a) = (mchunkptr)ptr;
   set_head(top(a), (((char*)h + h->size) - ptr) | PREV_INUSE);
 
+  LIBC_PROBE (memory_arena_new, 2, a, size);
+  mstate replaced_arena;
+  {
+    void *vptr = NULL;
+    replaced_arena = tsd_getspecific (arena_key, vptr);
+  }
   tsd_setspecific(arena_key, (void *)a);
   mutex_init(&a->mutex);
-  (void)mutex_lock(&a->mutex);
 
-#ifdef PER_THREAD
   (void)mutex_lock(&list_lock);
-#endif
 
   /* Add the new arena to the global list.  */
   a->next = main_arena.next;
+  /* FIXME: The barrier is an attempt to synchronize with read access
+     in reused_arena, which does not acquire list_lock while
+     traversing the list.  */
   atomic_write_barrier ();
   main_arena.next = a;
 
-#ifdef PER_THREAD
   (void)mutex_unlock(&list_lock);
-#endif
 
-  THREAD_STAT(++(a->stat_lock_loop));
+  (void) mutex_lock (&free_list_lock);
+  detach_arena (replaced_arena);
+  (void) mutex_unlock (&free_list_lock);
+
+  /* Lock this arena.  NB: Another thread may have been attached to
+     this arena because the arena is now accessible from the
+     main_arena.next list and could have been picked by reused_arena.
+     This can only happen for the last arena created (before the arena
+     limit is reached).  At this point, some arena has to be attached
+     to two threads.  We could acquire the arena lock before list_lock
+     to make it less likely that reused_arena picks this new arena,
+     but this could result in a deadlock with
+     __malloc_fork_lock_parent.  */
+
+  (void) mutex_lock (&a->mutex);
 
   return a;
 }
 
-
-#ifdef PER_THREAD
+/* Remove an arena from free_list.  */
 static mstate
 get_free_list (void)
 {
+  void *vptr = NULL;
+  mstate replaced_arena = tsd_getspecific (arena_key, vptr);
   mstate result = free_list;
   if (result != NULL)
     {
-      (void)mutex_lock(&list_lock);
+      (void)mutex_lock(&free_list_lock);
       result = free_list;
       if (result != NULL)
-	free_list = result->next_free;
-      (void)mutex_unlock(&list_lock);
+	{
+	  free_list = result->next_free;
+
+	  /* The arena will be attached to this thread.  */
+	  assert (result->attached_threads == 0);
+	  result->attached_threads = 1;
+
+	  detach_arena (replaced_arena);
+	}
+      (void)mutex_unlock(&free_list_lock);
 
       if (result != NULL)
 	{
+	  LIBC_PROBE (memory_arena_reuse_free_list, 1, result);
 	  (void)mutex_lock(&result->mutex);
 	  tsd_setspecific(arena_key, (void *)result);
-	  THREAD_STAT(++(result->stat_lock_loop));
 	}
     }
 
   return result;
+}
+
+/* Remove the arena from the free list (if it is present).
+   free_list_lock must have been acquired by the caller.  */
+static void
+remove_from_free_list (mstate arena)
+{
+  mstate *previous = &free_list;
+  for (mstate p = free_list; p != NULL; p = p->next_free)
+    {
+      assert (p->attached_threads == 0);
+      if (p == arena)
+	{
+	  /* Remove the requested arena from the list.  */
+	  *previous = p->next_free;
+	  break;
+	}
+      else
+	previous = &p->next_free;
+    }
 }
 
 /* Lock and return an arena that can be reused for memory allocation.
@@ -795,16 +859,20 @@ static mstate
 reused_arena (mstate avoid_arena)
 {
   mstate result;
+  /* FIXME: Access to next_to_use suffers from data races.  */
   static mstate next_to_use;
   if (next_to_use == NULL)
     next_to_use = &main_arena;
 
+  /* Iterate over all arenas (including those linked from
+     free_list).  */
   result = next_to_use;
   do
     {
-      if (!mutex_trylock(&result->mutex))
+      if (!arena_is_corrupt (result) && !mutex_trylock(&result->mutex))
 	goto out;
 
+      /* FIXME: This is a data race, see _int_new_arena.  */
       result = result->next;
     }
   while (result != next_to_use);
@@ -814,17 +882,50 @@ reused_arena (mstate avoid_arena)
   if (result == avoid_arena)
     result = result->next;
 
-  /* No arena available.  Wait for the next in line.  */
+  /* Make sure that the arena we get is not corrupted.  */
+  mstate begin = result;
+  while (arena_is_corrupt (result) || result == avoid_arena)
+    {
+      result = result->next;
+      if (result == begin)
+	/* We looped around the arena list.  We could not find any
+	   arena that was either not corrupted or not the one we
+	   wanted to avoid.  */
+	return NULL;
+    }
+
+  /* No arena available without contention.  Wait for the next in line.  */
+  LIBC_PROBE (memory_arena_reuse_wait, 3, &result->mutex, result, avoid_arena);
   (void)mutex_lock(&result->mutex);
 
  out:
+  /* Attach the arena to the current thread.  */
+  {
+    /* Update the arena thread attachment counters.   */
+    void *vptr = NULL;
+    mstate replaced_arena = tsd_getspecific (arena_key, vptr);
+    (void) mutex_lock (&free_list_lock);
+    detach_arena (replaced_arena);
+
+    /* We may have picked up an arena on the free list.  We need to
+       preserve the invariant that no arena on the free list has a
+       positive attached_threads counter (otherwise,
+       arena_thread_freeres cannot use the counter to determine if the
+       arena needs to be put on the free list).  We unconditionally
+       remove the selected arena from the free list.  The caller of
+       reused_arena checked the free list and observed it to be empty,
+       so the list is very short.  */
+    remove_from_free_list (result);
+
+    ++result->attached_threads;
+    (void) mutex_unlock (&free_list_lock);
+  }
+  LIBC_PROBE (memory_arena_reuse, 2, result, avoid_arena);
   tsd_setspecific(arena_key, (void *)result);
-  THREAD_STAT(++(result->stat_lock_loop));
   next_to_use = result->next;
 
   return result;
 }
-#endif
 
 static mstate
 internal_function
@@ -832,7 +933,6 @@ arena_get2(mstate a_tsd, size_t size, mstate avoid_arena)
 {
   mstate a;
 
-#ifdef PER_THREAD
   static size_t narenas_limit;
 
   a = get_free_list ();
@@ -875,52 +975,6 @@ arena_get2(mstate a_tsd, size_t size, mstate avoid_arena)
       else
 	a = reused_arena (avoid_arena);
     }
-#else
-  if(!a_tsd)
-    a = a_tsd = &main_arena;
-  else {
-    a = a_tsd->next;
-    if(!a) {
-      /* This can only happen while initializing the new arena. */
-      (void)mutex_lock(&main_arena.mutex);
-      THREAD_STAT(++(main_arena.stat_lock_wait));
-      return &main_arena;
-    }
-  }
-
-  /* Check the global, circularly linked list for available arenas. */
-  bool retried = false;
- repeat:
-  do {
-    if(!mutex_trylock(&a->mutex)) {
-      if (retried)
-	(void)mutex_unlock(&list_lock);
-      THREAD_STAT(++(a->stat_lock_loop));
-      tsd_setspecific(arena_key, (void *)a);
-      return a;
-    }
-    a = a->next;
-  } while(a != a_tsd);
-
-  /* If not even the list_lock can be obtained, try again.  This can
-     happen during `atfork', or for example on systems where thread
-     creation makes it temporarily impossible to obtain _any_
-     locks. */
-  if(!retried && mutex_trylock(&list_lock)) {
-    /* We will block to not run in a busy loop.  */
-    (void)mutex_lock(&list_lock);
-
-    /* Since we blocked there might be an arena available now.  */
-    retried = true;
-    a = a_tsd;
-    goto repeat;
-  }
-
-  /* Nothing immediately available, so generate a new arena.  */
-  a = _int_new_arena(size);
-  (void)mutex_unlock(&list_lock);
-#endif
-
   return a;
 }
 
@@ -931,6 +985,7 @@ arena_get2(mstate a_tsd, size_t size, mstate avoid_arena)
 static mstate
 arena_get_retry (mstate ar_ptr, size_t bytes)
 {
+  LIBC_PROBE (memory_arena_retry, 2, bytes, ar_ptr);
   if(ar_ptr != &main_arena) {
     (void)mutex_unlock(&ar_ptr->mutex);
     ar_ptr = &main_arena;
@@ -945,7 +1000,6 @@ arena_get_retry (mstate ar_ptr, size_t bytes)
   return ar_ptr;
 }
 
-#ifdef PER_THREAD
 static void __attribute__ ((section ("__libc_thread_freeres_fn")))
 arena_thread_freeres (void)
 {
@@ -955,14 +1009,19 @@ arena_thread_freeres (void)
 
   if (a != NULL)
     {
-      (void)mutex_lock(&list_lock);
-      a->next_free = free_list;
-      free_list = a;
-      (void)mutex_unlock(&list_lock);
+      (void)mutex_lock(&free_list_lock);
+      /* If this was the last attached thread for this arena, put the
+	 arena on the free list.  */
+      assert (a->attached_threads > 0);
+      if (--a->attached_threads == 0)
+	{
+	  a->next_free = free_list;
+	  free_list = a;
+	}
+      (void)mutex_unlock(&free_list_lock);
     }
 }
 text_set_element (__libc_thread_subfreeres, arena_thread_freeres);
-#endif
 
 /*
  * Local variables:

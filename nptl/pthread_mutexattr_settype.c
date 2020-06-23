@@ -21,14 +21,17 @@
 
 
 int
-__pthread_mutexattr_settype (attr, kind)
-     pthread_mutexattr_t *attr;
-     int kind;
+__pthread_mutexattr_settype (pthread_mutexattr_t *attr, int kind)
 {
   struct pthread_mutexattr *iattr;
 
   if (kind < PTHREAD_MUTEX_NORMAL || kind > PTHREAD_MUTEX_ADAPTIVE_NP)
     return EINVAL;
+
+  /* Cannot distinguish between DEFAULT and NORMAL. So any settype
+     call disables elision for now.  */
+  if (kind == PTHREAD_MUTEX_NORMAL)
+    kind |= PTHREAD_MUTEX_NO_ELISION_NP;
 
   iattr = (struct pthread_mutexattr *) attr;
 

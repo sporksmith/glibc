@@ -20,8 +20,6 @@
 #include <fenv_libc.h>
 #include <fpu_control.h>
 #include <stddef.h>
-#include <asm/ptrace.h>
-#include <sys/ptrace.h>
 #include <unistd.h>
 
 int
@@ -32,12 +30,10 @@ fesetenv (const fenv_t *envp)
   if (envp == FE_DFL_ENV)
     {
       env.__fpc = _FPU_DEFAULT;
-      env.__ieee_instruction_pointer = 0;
     }
   else if (envp == FE_NOMASK_ENV)
     {
       env.__fpc = FPC_EXCEPTION_MASK;
-      env.__ieee_instruction_pointer = 0;
     }
   else
     env = (*envp);

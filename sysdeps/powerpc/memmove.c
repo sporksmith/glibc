@@ -20,7 +20,6 @@
 
 #include <string.h>
 #include <memcopy.h>
-#include <pagecopy.h>
 
 /* All this is so that bcopy.c can #include
    this file after defining some things.  */
@@ -41,10 +40,7 @@
 #endif
 
 rettype
-MEMMOVE (a1, a2, len)
-     a1const void *a1;
-     a2const void *a2;
-     size_t len;
+MEMMOVE (a1const void *a1, a2const void *a2, size_t len)
 {
   unsigned long int dstp = (long int) dest;
   unsigned long int srcp = (long int) src;

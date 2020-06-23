@@ -21,7 +21,6 @@
 
 #include <sysdep-cancel.h>
 #include <sys/syscall.h>
-#include <bp-checks.h>
 
 #include <kernel-features.h>
 
@@ -29,14 +28,13 @@
 static inline int __attribute__ ((always_inline))
 do_sigsuspend (const sigset_t *set)
 {
-  return INLINE_SYSCALL (rt_sigsuspend, 2, CHECK_SIGSET (set), _NSIG / 8);
+  return INLINE_SYSCALL (rt_sigsuspend, 2, set, _NSIG / 8);
 }
 
 /* Change the set of blocked signals to SET,
    wait until a signal arrives, and restore the set of blocked signals.  */
 int
-__sigsuspend (set)
-     const sigset_t *set;
+__sigsuspend (const sigset_t *set)
 {
   if (SINGLE_THREAD_P)
     return do_sigsuspend (set);
@@ -55,8 +53,7 @@ strong_alias (__sigsuspend, __libc_sigsuspend)
 
 #ifndef NO_CANCELLATION
 int
-__sigsuspend_nocancel (set)
-     const sigset_t *set;
+__sigsuspend_nocancel (const sigset_t *set)
 {
   return do_sigsuspend (set);
 }

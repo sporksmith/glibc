@@ -65,6 +65,49 @@ struct dataset
   char strdata[0];
 };
 
+/* Sends a notfound message and prepares a notfound dataset to write to the
+   cache.  Returns true if there was enough memory to allocate the dataset and
+   returns the dataset in DATASETP, total bytes to write in TOTALP and the
+   timeout in TIMEOUTP.  KEY_COPY is set to point to the copy of the key in the
+   dataset. */
+static bool
+do_notfound (struct database_dyn *db, int fd, request_header *req,
+	       const char *key, struct dataset **datasetp, ssize_t *totalp,
+	       time_t *timeoutp, char **key_copy)
+{
+  struct dataset *dataset;
+  ssize_t total;
+  time_t timeout;
+  bool cacheable = false;
+
+  total = sizeof (notfound);
+  timeout = time (NULL) + db->negtimeout;
+
+  if (fd != -1)
+    TEMP_FAILURE_RETRY (send (fd, &notfound, total, MSG_NOSIGNAL));
+
+  dataset = mempool_alloc (db, sizeof (struct dataset) + req->key_len, 1);
+  /* If we cannot permanently store the result, so be it.  */
+  if (dataset != NULL)
+    {
+      timeout = datahead_init_neg (&dataset->head,
+				   sizeof (struct dataset) + req->key_len,
+				   total, db->negtimeout);
+
+      /* This is the reply.  */
+      memcpy (&dataset->resp, &notfound, total);
+
+      /* Copy the key data.  */
+      memcpy (dataset->strdata, key, req->key_len);
+      *key_copy = dataset->strdata;
+
+      cacheable = true;
+    }
+  *timeoutp = timeout;
+  *totalp = total;
+  *datasetp = dataset;
+  return cacheable;
+}
 
 static time_t
 addgetnetgrentX (struct database_dyn *db, int fd, request_header *req,
@@ -84,6 +127,7 @@ addgetnetgrentX (struct database_dyn *db, int fd, request_header *req,
   struct dataset *dataset;
   bool cacheable = false;
   ssize_t total;
+  bool found = false;
 
   char *key_copy = NULL;
   struct __netgrent data;
@@ -91,7 +135,6 @@ addgetnetgrentX (struct database_dyn *db, int fd, request_header *req,
   size_t buffilled = sizeof (*dataset);
   char *buffer = NULL;
   size_t nentries = 0;
-  bool use_malloc = false;
   size_t group_len = strlen (key) + 1;
   union
   {
@@ -103,40 +146,13 @@ addgetnetgrentX (struct database_dyn *db, int fd, request_header *req,
       && __nss_database_lookup ("netgroup", NULL, NULL, &netgroup_database))
     {
       /* No such service.  */
-      total = sizeof (notfound);
-      timeout = time (NULL) + db->negtimeout;
-
-      if (fd != -1)
-	TEMP_FAILURE_RETRY (send (fd, &notfound, total, MSG_NOSIGNAL));
-
-      dataset = mempool_alloc (db, sizeof (struct dataset) + req->key_len, 1);
-      /* If we cannot permanently store the result, so be it.  */
-      if (dataset != NULL)
-	{
-	  dataset->head.allocsize = sizeof (struct dataset) + req->key_len;
-	  dataset->head.recsize = total;
-	  dataset->head.notfound = true;
-	  dataset->head.nreloads = 0;
-	  dataset->head.usable = true;
-
-	  /* Compute the timeout time.  */
-	  timeout = dataset->head.timeout = time (NULL) + db->negtimeout;
-	  dataset->head.ttl = db->negtimeout;
-
-	  /* This is the reply.  */
-	  memcpy (&dataset->resp, &notfound, total);
-
-	  /* Copy the key data.  */
-	  memcpy (dataset->strdata, key, req->key_len);
-
-	  cacheable = true;
-	}
-
+      cacheable = do_notfound (db, fd, req, key, &dataset, &total, &timeout,
+			       &key_copy);
       goto writeout;
     }
 
   memset (&data, '\0', sizeof (data));
-  buffer = alloca (buflen);
+  buffer = xmalloc (buflen);
   first_needed.elem.next = &first_needed.elem;
   memcpy (first_needed.elem.name, key, group_len);
   data.needed_groups = &first_needed.elem;
@@ -167,6 +183,7 @@ addgetnetgrentX (struct database_dyn *db, int fd, request_header *req,
 
 	  if (status == NSS_STATUS_SUCCESS)
 	    {
+	      found = true;
 	      union
 	      {
 		enum nss_status (*f) (struct __netgrent *, char *, size_t,
@@ -179,11 +196,7 @@ addgetnetgrentX (struct database_dyn *db, int fd, request_header *req,
 		  {
 		    int e;
 		    status = getfct.f (&data, buffer + buffilled,
-				       buflen - buffilled, &e);
-		    if (status == NSS_STATUS_RETURN)
-		      /* This was the last one for this group.  Look
-			 at next group if available.  */
-		      break;
+				       buflen - buffilled - req->key_len, &e);
 		    if (status == NSS_STATUS_SUCCESS)
 		      {
 			if (data.type == triple_val)
@@ -192,51 +205,66 @@ addgetnetgrentX (struct database_dyn *db, int fd, request_header *req,
 			    const char *nuser = data.val.triple.user;
 			    const char *ndomain = data.val.triple.domain;
 
-			    if (data.val.triple.host > data.val.triple.user
-				|| data.val.triple.user > data.val.triple.domain)
+			    size_t hostlen = strlen (nhost ?: "") + 1;
+			    size_t userlen = strlen (nuser ?: "") + 1;
+			    size_t domainlen = strlen (ndomain ?: "") + 1;
+
+			    if (nhost == NULL || nuser == NULL || ndomain == NULL
+				|| nhost > nuser || nuser > ndomain)
 			      {
-				const char *last = MAX (nhost,
-							MAX (nuser, ndomain));
-				size_t bufused = (last + strlen (last) + 1
-						  - buffer);
+				const char *last = nhost;
+				if (last == NULL
+				    || (nuser != NULL && nuser > last))
+				  last = nuser;
+				if (last == NULL
+				    || (ndomain != NULL && ndomain > last))
+				  last = ndomain;
+
+				size_t bufused
+				  = (last == NULL
+				     ? buffilled
+				     : last + strlen (last) + 1 - buffer);
 
 				/* We have to make temporary copies.  */
-				size_t hostlen = strlen (nhost) + 1;
-				size_t userlen = strlen (nuser) + 1;
-				size_t domainlen = strlen (ndomain) + 1;
 				size_t needed = hostlen + userlen + domainlen;
 
 				if (buflen - req->key_len - bufused < needed)
 				  {
-				    size_t newsize = MAX (2 * buflen,
-							  buflen + 2 * needed);
-				    if (use_malloc || newsize > 1024 * 1024)
-				      {
-					buflen = newsize;
-					char *newbuf = xrealloc (use_malloc
-								 ? buffer
-								 : NULL,
-								 buflen);
+				    buflen += MAX (buflen, 2 * needed);
+				    /* Save offset in the old buffer.  We don't
+				       bother with the NULL check here since
+				       we'll do that later anyway.  */
+				    size_t nhostdiff = nhost - buffer;
+				    size_t nuserdiff = nuser - buffer;
+				    size_t ndomaindiff = ndomain - buffer;
 
-					buffer = newbuf;
-					use_malloc = true;
-				      }
-				    else
-				      extend_alloca (buffer, buflen, newsize);
+				    char *newbuf = xrealloc (buffer, buflen);
+				    /* Fix up the triplet pointers into the new
+				       buffer.  */
+				    nhost = (nhost ? newbuf + nhostdiff
+					     : NULL);
+				    nuser = (nuser ? newbuf + nuserdiff
+					     : NULL);
+				    ndomain = (ndomain ? newbuf + ndomaindiff
+					       : NULL);
+				    buffer = newbuf;
 				  }
 
 				nhost = memcpy (buffer + bufused,
-						nhost, hostlen);
+						nhost ?: "", hostlen);
 				nuser = memcpy ((char *) nhost + hostlen,
-						nuser, userlen);
+						nuser ?: "", userlen);
 				ndomain = memcpy ((char *) nuser + userlen,
-						  ndomain, domainlen);
+						  ndomain ?: "", domainlen);
 			      }
 
 			    char *wp = buffer + buffilled;
-			    wp = stpcpy (wp, nhost) + 1;
-			    wp = stpcpy (wp, nuser) + 1;
-			    wp = stpcpy (wp, ndomain) + 1;
+			    wp = memmove (wp, nhost ?: "", hostlen);
+			    wp += hostlen;
+			    wp = memmove (wp, nuser ?: "", userlen);
+			    wp += userlen;
+			    wp = memmove (wp, ndomain ?: "", domainlen);
+			    wp += domainlen;
 			    buffilled = wp - buffer;
 			    ++nentries;
 			  }
@@ -287,21 +315,18 @@ addgetnetgrentX (struct database_dyn *db, int fd, request_header *req,
 			      }
 			  }
 		      }
-		    else if (status == NSS_STATUS_UNAVAIL && e == ERANGE)
+		    else if (status == NSS_STATUS_TRYAGAIN && e == ERANGE)
 		      {
-			size_t newsize = 2 * buflen;
-			if (use_malloc || newsize > 1024 * 1024)
-			  {
-			    buflen = newsize;
-			    char *newbuf = xrealloc (use_malloc
-						     ? buffer : NULL, buflen);
-
-			    buffer = newbuf;
-			    use_malloc = true;
-			  }
-			else
-			  extend_alloca (buffer, buflen, newsize);
+			buflen *= 2;
+			buffer = xrealloc (buffer, buflen);
 		      }
+		    else if (status == NSS_STATUS_RETURN
+			     || status == NSS_STATUS_NOTFOUND
+			     || status == NSS_STATUS_UNAVAIL)
+		      /* This was either the last one for this group or the
+			 group was empty or the NSS module had an internal
+			 failure.  Look at next group if available.  */
+		      break;
 		  }
 
 	      enum nss_status (*endfct) (struct __netgrent *);
@@ -317,17 +342,23 @@ addgetnetgrentX (struct database_dyn *db, int fd, request_header *req,
 	}
     }
 
+  /* No results.  Return a failure and write out a notfound record in the
+     cache.  */
+  if (!found)
+    {
+      cacheable = do_notfound (db, fd, req, key, &dataset, &total, &timeout,
+			       &key_copy);
+      goto writeout;
+    }
+
   total = buffilled;
 
   /* Fill in the dataset.  */
   dataset = (struct dataset *) buffer;
-  dataset->head.allocsize = total + req->key_len;
-  dataset->head.recsize = total - offsetof (struct dataset, resp);
-  dataset->head.notfound = false;
-  dataset->head.nreloads = he == NULL ? 0 : (dh->nreloads + 1);
-  dataset->head.usable = true;
-  dataset->head.ttl = db->postimeout;
-  timeout = dataset->head.timeout = time (NULL) + dataset->head.ttl;
+  timeout = datahead_init_pos (&dataset->head, total + req->key_len,
+			       total - offsetof (struct dataset, resp),
+			       he == NULL ? 0 : dh->nreloads + 1,
+			       db->postimeout);
 
   dataset->resp.version = NSCD_VERSION;
   dataset->resp.found = 1;
@@ -436,8 +467,7 @@ addgetnetgrentX (struct database_dyn *db, int fd, request_header *req,
     }
 
  out:
-  if (use_malloc)
-    free (buffer);
+  free (buffer);
 
   *resultp = dataset;
 
@@ -452,7 +482,7 @@ addinnetgrX (struct database_dyn *db, int fd, request_header *req,
 {
   const char *group = key;
   key = (char *) rawmemchr (key, '\0') + 1;
-  size_t group_len = key - group - 1;
+  size_t group_len = key - group;
   const char *host = *key++ ? key : NULL;
   if (host != NULL)
     key = (char *) rawmemchr (key, '\0') + 1;
@@ -504,12 +534,12 @@ addinnetgrX (struct database_dyn *db, int fd, request_header *req,
       dataset = &dataset_mem;
     }
 
-  dataset->head.allocsize = sizeof (*dataset) + req->key_len;
-  dataset->head.recsize = sizeof (innetgroup_response_header);
+  datahead_init_pos (&dataset->head, sizeof (*dataset) + req->key_len,
+		     sizeof (innetgroup_response_header),
+		     he == NULL ? 0 : dh->nreloads + 1, result->head.ttl);
+  /* Set the notfound status and timeout based on the result from
+     getnetgrent.  */
   dataset->head.notfound = result->head.notfound;
-  dataset->head.nreloads = he == NULL ? 0 : (dh->nreloads + 1);
-  dataset->head.usable = true;
-  dataset->head.ttl = result->head.ttl;
   dataset->head.timeout = timeout;
 
   dataset->resp.version = NSCD_VERSION;
@@ -527,15 +557,19 @@ addinnetgrX (struct database_dyn *db, int fd, request_header *req,
 	{
 	  bool success = true;
 
-	  if (host != NULL)
+	  /* For the host, user and domain in each triplet, we assume success
+	     if the value is blank because that is how the wildcard entry to
+	     match anything is stored in the netgroup cache.  */
+	  if (host != NULL && *triplets != '\0')
 	    success = strcmp (host, triplets) == 0;
 	  triplets = (const char *) rawmemchr (triplets, '\0') + 1;
 
-	  if (success && user != NULL)
+	  if (success && user != NULL && *triplets != '\0')
 	    success = strcmp (user, triplets) == 0;
 	  triplets = (const char *) rawmemchr (triplets, '\0') + 1;
 
-	  if (success && (domain == NULL || strcmp (domain, triplets) == 0))
+	  if (success && (domain == NULL || *triplets == '\0'
+			  || strcmp (domain, triplets) == 0))
 	    {
 	      dataset->resp.result = 1;
 	      break;
@@ -552,6 +586,8 @@ addinnetgrX (struct database_dyn *db, int fd, request_header *req,
       dh->timeout = timeout;
       dh->ttl = dataset->head.ttl;
       ++dh->nreloads;
+      if (cacheable)
+	pthread_rwlock_unlock (&db->lock);
       return timeout;
     }
 

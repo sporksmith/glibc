@@ -96,11 +96,13 @@ others += rpcgen
 
 all: # Make this the default target; it will be defined in Rules.
 
-tests = tst-xdrmem tst-xdrmem2
+tests = tst-xdrmem tst-xdrmem2 tst-udp-timeout \
+  tst-udp-nonblocking
 xtests := tst-getmyaddr
 
 ifeq ($(have-thread-library),yes)
 xtests += thrsvc
+tests += tst-udp-garbage
 endif
 
 headers += $(rpcsvc:%.x=rpcsvc/%.h)
@@ -168,7 +170,7 @@ $(cross-rpcgen-objs): $(objpfx)cross-%.o: %.c $(before-compile)
 $(objpfx)cross-rpcgen: $(cross-rpcgen-objs)
 	$(BUILD_CC) $^ $(BUILD_LDFLAGS) -o $@
 
-# This makes sure -DNOT_IN_libc is passed for all these modules.
+# This makes sure -DIN_MODULE is passed for all these modules.
 cpp-srcs-left := $(rpcgen-objs:.o=.c)
 lib := nonlib
 include $(patsubst %,$(..)cppflags-iterator.mk,$(cpp-srcs-left))
@@ -225,3 +227,8 @@ endif
 endif
 
 $(objpfx)thrsvc: $(common-objpfx)linkobj/libc.so $(shared-thread-library)
+
+$(objpfx)tst-udp-timeout: $(common-objpfx)linkobj/libc.so
+$(objpfx)tst-udp-nonblocking: $(common-objpfx)linkobj/libc.so
+$(objpfx)tst-udp-garbage: \
+  $(common-objpfx)linkobj/libc.so $(shared-thread-library)

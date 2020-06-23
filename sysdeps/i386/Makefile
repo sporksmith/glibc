@@ -33,6 +33,7 @@ sysdep-CFLAGS += -mpreferred-stack-boundary=4
 else
 ifeq ($(subdir),csu)
 sysdep-CFLAGS += -mpreferred-stack-boundary=4
+gen-as-const-headers += link-defines.sym
 else
 # Likewise, any function which calls user callbacks
 uses-callbacks += -mpreferred-stack-boundary=4
@@ -62,12 +63,18 @@ endif
 
 ifneq (,$(filter -mno-tls-direct-seg-refs,$(CFLAGS)))
 defines += -DNO_TLS_DIRECT_SEG_REFS
+else
+# .a libraries are not performance critical and so we
+# build them without direct TLS segment references
+# always.
+CPPFLAGS-.o += -DNO_TLS_DIRECT_SEG_REFS
+CFLAGS-.o += -mno-tls-direct-seg-refs
+CPPFLAGS-.oS += -DNO_TLS_DIRECT_SEG_REFS
+CFLAGS-.oS += -mno-tls-direct-seg-refs
 endif
 
 ifeq ($(subdir),elf)
 sysdep-dl-routines += tlsdesc dl-tlsdesc
-sysdep_routines += tlsdesc dl-tlsdesc
-sysdep-rtld-routines += tlsdesc dl-tlsdesc
 endif
 
 ifeq ($(subdir),csu)

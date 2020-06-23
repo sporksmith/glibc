@@ -23,12 +23,9 @@
 #else
 # include <jmpbuf-offsets.h>
 #endif
-#include <bp-sym.h>
-#include <bp-asm.h>
 
 	.machine	"altivec"
-ENTRY (BP_SYM (__longjmp))
-	CHECK_BOUNDS_BOTH_WIDE_LIT (r3, r8, r9, JB_SIZE)
+ENTRY (__longjmp)
 #ifndef __NO_VMX__
 # ifdef PIC
 	mflr    r6
@@ -37,7 +34,7 @@ ENTRY (BP_SYM (__longjmp))
 	addis	r5,r5,_GLOBAL_OFFSET_TABLE_-got_label@ha
 	addi	r5,r5,_GLOBAL_OFFSET_TABLE_-got_label@l
 #  ifdef SHARED
-#   ifdef IS_IN_rtld
+#   if IS_IN (rtld)
 	/* Inside ld.so we use the local alias to avoid runtime GOT
 	   relocations.  */
 	lwz     r5,_rtld_local_ro@got(r5)
@@ -46,16 +43,16 @@ ENTRY (BP_SYM (__longjmp))
 #   endif
 	mtlr    r6
 	cfi_same_value (lr)
-	lwz     r5,RTLD_GLOBAL_RO_DL_HWCAP_OFFSET+4(r5)
+	lwz     r5,RTLD_GLOBAL_RO_DL_HWCAP_OFFSET+LOWORD(r5)
 #  else
 	lwz     r5,_dl_hwcap@got(r5)
 	mtlr    r6
 	cfi_same_value (lr)
-	lwz     r5,4(r5)
+	lwz     r5,LOWORD(r5)
 #  endif
 # else
-	lis	r5,(_dl_hwcap+4)@ha
-	lwz     r5,(_dl_hwcap+4)@l(r5)
+	lis	r5,(_dl_hwcap+LOWORD)@ha
+	lwz     r5,(_dl_hwcap+LOWORD)@l(r5)
 # endif
 	andis.	r5,r5,(PPC_FEATURE_HAS_ALTIVEC >> 16)
 	beq	L(no_vmx)
@@ -173,4 +170,4 @@ L(no_vmx):
 	lfd fp31,((JB_FPRS+17*2)*4)(r3)
 	mr r3,r4
 	blr
-END (BP_SYM (__longjmp))
+END (__longjmp)

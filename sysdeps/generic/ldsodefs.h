@@ -246,7 +246,7 @@ typedef void (*receiver_fct) (int, const char *, const char *);
 # define GL(name) _##name
 #else
 # define EXTERN
-# ifdef IS_IN_rtld
+# if IS_IN (rtld)
 #  define GL(name) _rtld_local._##name
 # else
 #  define GL(name) _rtld_global._##name
@@ -315,7 +315,7 @@ struct rtld_global
   /* The object to be initialized first.  */
   EXTERN struct link_map *_dl_initfirst;
 
-#if HP_TIMING_AVAIL || HP_SMALL_TIMING_AVAIL
+#if HP_SMALL_TIMING_AVAIL
   /* Start time on CPU clock.  */
   EXTERN hp_timing_t _dl_cpuclock_offset;
 #endif
@@ -384,8 +384,18 @@ struct rtld_global
    have to iterate beyond the first element in the slotinfo list.  */
 #define TLS_SLOTINFO_SURPLUS (62)
 
-/* Number of additional slots in the dtv allocated.  */
-#define DTV_SURPLUS	(14)
+/* Number of additional allocated dtv slots.  This was initially
+   14, but problems with python, MESA, and X11's uses of static TLS meant
+   that most distributions were very close to this limit when they loaded
+   dynamically interpreted languages that used graphics. The simplest
+   solution was to roughly double the number of slots. The actual static
+   image space usage was relatively small, for example in MESA you
+   had only two dispatch pointers for a total of 16 bytes.  If we hit up
+   against this limit again we should start a campaign with the
+   distributions to coordinate the usage of static TLS.  Any user of this
+   resource is effectively coordinating a global resource since this
+   surplus is allocated for each thread at startup.  */
+#define DTV_SURPLUS	(32)
 
   /* Initial dtv of the main thread, not allocated with normal malloc.  */
   EXTERN void *_dl_initial_dtv;
@@ -405,7 +415,7 @@ struct rtld_global
 #ifdef SHARED
 };
 # define __rtld_global_attribute__
-# ifdef IS_IN_rtld
+# if IS_IN (rtld)
 #  ifdef HAVE_SDATA_SECTION
 #   define __rtld_local_attribute__ \
 	    __attribute__ ((visibility ("hidden"), section (".sdata")))
@@ -424,7 +434,7 @@ extern struct rtld_global _rtld_global __rtld_global_attribute__;
 #ifndef SHARED
 # define GLRO(name) _##name
 #else
-# ifdef IS_IN_rtld
+# if IS_IN (rtld)
 #  define GLRO(name) _rtld_local_ro._##name
 # else
 #  define GLRO(name) _rtld_global_ro._##name
@@ -528,11 +538,6 @@ struct rtld_global_ro
   /* All search directories defined at startup.  */
   EXTERN struct r_search_path_elem *_dl_init_all_dirs;
 
-#if HP_TIMING_AVAIL || HP_SMALL_TIMING_AVAIL
-  /* Overhead of a high-precision timing measurement.  */
-  EXTERN hp_timing_t _dl_hp_timing_overhead;
-#endif
-
 #ifdef NEED_DL_SYSINFO
   /* Syscall handling improvements.  This is very specific to x86.  */
   EXTERN uintptr_t _dl_sysinfo;
@@ -547,6 +552,13 @@ struct rtld_global_ro
      and this points to it.  */
   EXTERN struct link_map *_dl_sysinfo_map;
 #endif
+
+  /* Mask for more hardware capabilities that are available on some
+     platforms.  */
+  EXTERN uint64_t _dl_hwcap2;
+
+  /* RHEL 7 specific change: Is elision enabled for this process?  */
+  EXTERN bool _dl_elision_enabled;
 
 #ifdef SHARED
   /* We add a function table to _rtld_global which is then used to
@@ -579,12 +591,9 @@ struct rtld_global_ro
   /* List of auditing interfaces.  */
   struct audit_ifaces *_dl_audit;
   unsigned int _dl_naudit;
-
-  /* 0 if internal pointer values should not be guarded, 1 if they should.  */
-  EXTERN int _dl_pointer_guard;
 };
 # define __rtld_global_attribute__
-# ifdef IS_IN_rtld
+# if IS_IN (rtld)
 #  define __rtld_local_attribute__ __attribute__ ((visibility ("hidden")))
 extern struct rtld_global_ro _rtld_local_ro
     attribute_relro __rtld_local_attribute__;
@@ -601,7 +610,7 @@ extern const struct rtld_global_ro _rtld_global_ro
 #endif
 #undef EXTERN
 
-#ifdef IS_IN_rtld
+#if IS_IN (rtld)
 /* This is the initial value of GL(dl_error_catch_tsd).
    A non-TLS libpthread will change it.  */
 extern void **_dl_initial_error_catch_tsd (void) __attribute__ ((const))
@@ -632,7 +641,7 @@ extern char **_dl_argv
      attribute_relro
 #endif
      ;
-#ifdef IS_IN_rtld
+#if IS_IN (rtld)
 extern char **_dl_argv_internal attribute_hidden
 # ifndef DL_ARGV_NOT_RELRO
      attribute_relro
@@ -646,7 +655,7 @@ extern char **_dl_argv_internal attribute_hidden
 /* Flag set at startup and cleared when the last initializer has run.  */
 extern int _dl_starting_up;
 weak_extern (_dl_starting_up)
-#ifdef IS_IN_rtld
+#if IS_IN (rtld)
 extern int _dl_starting_up_internal attribute_hidden;
 #endif
 
@@ -887,6 +896,10 @@ extern void _dl_show_auxv (void) internal_function;
    other.  */
 extern char *_dl_next_ld_env_entry (char ***position) internal_function;
 
+/* RHEL 7 specific change:
+   Manually process RHEL 7-specific tunable entries.  */
+extern void _dl_process_tunable_env_entries (void) internal_function;
+
 /* Return an array with the names of the important hardware capabilities.  */
 extern const struct r_strlenpair *_dl_important_hwcaps (const char *platform,
 							size_t paltform_len,
@@ -895,8 +908,8 @@ extern const struct r_strlenpair *_dl_important_hwcaps (const char *platform,
      internal_function;
 
 /* Look up NAME in ld.so.cache and return the file name stored there,
-   or null if none is found.  */
-extern const char *_dl_load_cache_lookup (const char *name)
+   or null if none is found.  Caller must free returned string.  */
+extern char *_dl_load_cache_lookup (const char *name)
      internal_function;
 
 /* If the system does not support MAP_COPY we cannot leave the file open
@@ -929,6 +942,9 @@ extern void _dl_sysdep_start_cleanup (void)
 
 /* Determine next available module ID.  */
 extern size_t _dl_next_tls_modid (void) internal_function attribute_hidden;
+
+/* Count the modules with TLS segments.  */
+extern size_t _dl_count_modids (void) internal_function attribute_hidden;
 
 /* Calculate offset of the TLS blocks in the static TLS block.  */
 extern void _dl_determine_tlsoffset (void) internal_function attribute_hidden;
@@ -967,11 +983,11 @@ extern void _dl_nothread_init_static_tls (struct link_map *) attribute_hidden;
 extern const char *_dl_get_origin (void) attribute_hidden;
 
 /* Count DSTs.  */
-extern size_t _dl_dst_count (const char *name, int is_path) attribute_hidden;
+extern size_t _dl_dst_count (const char *name) attribute_hidden;
 
 /* Substitute DST values.  */
 extern char *_dl_dst_substitute (struct link_map *l, const char *name,
-				 char *result, int is_path) attribute_hidden;
+				 char *result) attribute_hidden;
 
 /* Check validity of the caller.  */
 extern int _dl_check_caller (const void *caller, enum allowmask mask)

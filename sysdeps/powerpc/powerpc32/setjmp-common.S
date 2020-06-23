@@ -24,12 +24,9 @@
 #else
 # include <jmpbuf-offsets.h>
 #endif
-#include <bp-sym.h>
-#include <bp-asm.h>
 
 
-ENTRY (BP_SYM (__sigsetjmp))
-	CHECK_BOUNDS_BOTH_WIDE_LIT (r3, r8, r9, JB_SIZE)
+ENTRY (__sigsetjmp)
 
 #ifdef PTR_MANGLE
 	mr   r5,r1
@@ -64,10 +61,10 @@ ENTRY (BP_SYM (__sigsetjmp))
 	stw  r29,((JB_GPRS+15)*4)(3)
 	stw  r30,((JB_GPRS+16)*4)(3)
 	stw  r31,((JB_GPRS+17)*4)(3)
-#if defined NOT_IN_libc && defined IS_IN_rtld
+#if IS_IN (rtld)
 	li   r3,0
 	blr
 #else
-	b BP_SYM (__sigjmp_save@local)
+	b __sigjmp_save@local
 #endif
-END (BP_SYM (__sigsetjmp))
+END (__sigsetjmp)

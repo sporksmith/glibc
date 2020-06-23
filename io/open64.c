@@ -22,12 +22,10 @@
 #include <stddef.h>
 #include <stdio.h>
 
-/* Open FILE with access OFLAG.  If OFLAG includes O_CREAT,
+/* Open FILE with access OFLAG.  If O_CREAT or O_TMPFILE is in OFLAG,
    a third argument is the file protection.  */
 int
-__libc_open64 (file, oflag)
-     const char *file;
-     int oflag;
+__libc_open64 (const char *file, int oflag)
 {
   int mode;
 
@@ -37,7 +35,7 @@ __libc_open64 (file, oflag)
       return -1;
     }
 
-  if (oflag & O_CREAT)
+  if (__OPEN_NEEDS_MODE (oflag))
     {
       va_list arg;
       va_start (arg, oflag);
@@ -54,15 +52,6 @@ weak_alias (__libc_open64, open64)
 
 stub_warning (open64)
 
-
-int
-__open64_2 (file, oflag)
-     const char *file;
-     int oflag;
-{
-  if (oflag & O_CREAT)
-    __fortify_fail ("invalid open64 call: O_CREAT without mode");
-
-  return __open64 (file, oflag);
-}
+/* __open64_2 is a generic wrapper that calls __open64.
+   So give a stub warning for that symbol too.  */
 stub_warning (__open64_2)

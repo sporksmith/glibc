@@ -40,7 +40,6 @@ routines :=								      \
 	getuid geteuid getgid getegid getgroups setuid setgid group_member    \
 	getpgid setpgid getpgrp bsd-getpgrp setpgrp getsid setsid	      \
 	getresuid getresgid setresuid setresgid				      \
-	getlogin getlogin_r setlogin					      \
 	pathconf sysconf fpathconf					      \
 	glob glob64 fnmatch regex					      \
 	confstr								      \
@@ -86,7 +85,8 @@ tests		:= tstgetopt testfnm runtests runptests	     \
 		   tst-rfc3484-3 \
 		   tst-getaddrinfo3 tst-fnmatch2 tst-cpucount tst-cpuset \
 		   bug-getopt1 bug-getopt2 bug-getopt3 bug-getopt4 \
-		   bug-getopt5 tst-getopt_long1
+		   bug-getopt5 tst-getopt_long1 bug-regex34 \
+		   tst-pathconf tst-fnmatch3
 xtests		:= bug-ga2
 ifeq (yes,$(build-shared))
 test-srcs	:= globtest
@@ -96,7 +96,7 @@ others		:= getconf
 install-bin	:= getconf
 install-others-programs	:= $(inst_libexecdir)/getconf
 
-before-compile	:= testcases.h ptestcases.h
+before-compile	+= testcases.h ptestcases.h posix-conf-vars-def.h
 
 # So they get cleaned up.
 generated := $(addprefix wordexp-test-result, 1 2 3 4 5 6 7 8 9 10) \
@@ -177,26 +177,7 @@ tst-dir-ARGS = `pwd` `cd $(common-objdir)/$(subdir); pwd` `cd $(common-objdir); 
 tst-chmod-ARGS = $(objdir)
 tst-vfork3-ARGS = --test-dir=$(objpfx)
 
-tst-fnmatch-ENV = LOCPATH=$(common-objpfx)localedata
-tst-regexloc-ENV = LOCPATH=$(common-objpfx)localedata
-bug-regex1-ENV = LOCPATH=$(common-objpfx)localedata
-tst-regex-ENV = LOCPATH=$(common-objpfx)localedata
-tst-regex2-ENV = LOCPATH=$(common-objpfx)localedata
-bug-regex5-ENV = LOCPATH=$(common-objpfx)localedata
-bug-regex6-ENV = LOCPATH=$(common-objpfx)localedata
-bug-regex17-ENV = LOCPATH=$(common-objpfx)localedata
-bug-regex18-ENV = LOCPATH=$(common-objpfx)localedata
-bug-regex19-ENV = LOCPATH=$(common-objpfx)localedata
-bug-regex20-ENV = LOCPATH=$(common-objpfx)localedata
-bug-regex22-ENV = LOCPATH=$(common-objpfx)localedata
-bug-regex23-ENV = LOCPATH=$(common-objpfx)localedata
-bug-regex25-ENV = LOCPATH=$(common-objpfx)localedata
-bug-regex26-ENV = LOCPATH=$(common-objpfx)localedata
-bug-regex30-ENV = LOCPATH=$(common-objpfx)localedata
-bug-regex32-ENV = LOCPATH=$(common-objpfx)localedata
-bug-regex33-ENV = LOCPATH=$(common-objpfx)localedata
 tst-rxspencer-ARGS = --utf8 rxspencer/tests
-tst-rxspencer-ENV = LOCPATH=$(common-objpfx)localedata
 tst-pcre-ARGS = PCRE.tests
 tst-boost-ARGS = BOOST.tests
 bug-glob1-ARGS = "$(objpfx)"
@@ -302,3 +283,14 @@ $(objpfx)getconf.speclist: getconf-speclist.c posix-envs.def
 	$(compile.c) -E -o - \
 	    | sed -n -e '/@@@PRESENT_/s/@@@PRESENT_//p' > $@.new
 	mv -f $@.new $@
+
+# This file is only actually needed at install time.  But forcing it to
+# be built both makes it available for eyeball inspection and avoids the
+# surprise of things that look like compilation being done by 'make install'.
+others: $(objpfx)getconf.speclist
+
+$(objpfx)posix-conf-vars-def.h: $(..)scripts/gen-posix-conf-vars.awk \
+				posix-conf-vars.list Makefile
+	$(make-target-directory)
+	$(AWK) -f $(filter-out Makefile, $^) > $@.tmp
+	mv -f $@.tmp $@

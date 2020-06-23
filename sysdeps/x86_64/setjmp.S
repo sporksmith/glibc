@@ -54,17 +54,17 @@ ENTRY (__sigsetjmp)
 #endif
 	movq %rax, (JB_PC*8)(%rdi)
 
-#if defined NOT_IN_libc && defined IS_IN_rtld
+#if IS_IN (rtld)
 	/* In ld.so we never save the signal mask.  */
 	xorl %eax, %eax
 	retq
 #else
 	/* Make a tail call to __sigjmp_save; it takes the same args.  */
 # ifdef	PIC
-	jmp C_SYMBOL_NAME (BP_SYM (__sigjmp_save))@PLT
+	jmp C_SYMBOL_NAME (__sigjmp_save)@PLT
 # else
-	jmp BP_SYM (__sigjmp_save)
+	jmp __sigjmp_save
 # endif
 #endif
-END (BP_SYM (__sigsetjmp))
+END (__sigsetjmp)
 hidden_def (__sigsetjmp)

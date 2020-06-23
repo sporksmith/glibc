@@ -20,15 +20,15 @@
 #include <rtld-global-offsets.h>
 #include <shlib-compat.h>
 
-#if defined NOT_IN_libc
+#if !IS_IN (libc)
 /* Build a non-versioned object for rtld-*.  */
 # include "setjmp-common.S"
 
-#else /* !NOT_IN_libc */
+#else /* !IS_IN (libc) */
 /* Build a versioned object for libc.  */
-default_symbol_version (__vmxsetjmp, setjmp, GLIBC_2.3.4)
-default_symbol_version (__vmx_setjmp,_setjmp,GLIBC_2.3.4)
-default_symbol_version (__vmx__sigsetjmp,__sigsetjmp,GLIBC_2.3.4)
+versioned_symbol (libc, __vmxsetjmp, setjmp, GLIBC_2_3_4)
+versioned_symbol (libc, __vmx_setjmp, _setjmp, GLIBC_2_3_4)
+versioned_symbol (libc, __vmx__sigsetjmp, __sigsetjmp, GLIBC_2_3_4)
 # define setjmp __vmxsetjmp
 # define _setjmp __vmx_setjmp
 # define __sigsetjmp __vmx__sigsetjmp
@@ -44,9 +44,9 @@ strong_alias (__vmx__sigsetjmp, __setjmp)
 #  undef __sigjmp_save
 #  undef JB_SIZE
 #  define __NO_VMX__
-symbol_version (__novmxsetjmp, setjmp, GLIBC_2.3)
-symbol_version (__novmx_setjmp,_setjmp,GLIBC_2.3);
-symbol_version (__novmx__sigsetjmp,__sigsetjmp,GLIBC_2.3)
+compat_symbol (libc, __novmxsetjmp, setjmp, GLIBC_2_3)
+compat_symbol (libc, __novmx_setjmp,_setjmp, GLIBC_2_3);
+compat_symbol (libc, __novmx__sigsetjmp,__sigsetjmp, GLIBC_2_3)
 #  define setjmp __novmxsetjmp
 #  define _setjmp __novmx_setjmp
 #  define __sigsetjmp __novmx__sigsetjmp
@@ -54,4 +54,4 @@ symbol_version (__novmx__sigsetjmp,__sigsetjmp,GLIBC_2.3)
 #  include "setjmp-common.S"
 strong_alias (__novmxsetjmp, __novmx__setjmp)
 # endif
-#endif /* !NOT_IN_libc */
+#endif /* IS_IN (libc) */

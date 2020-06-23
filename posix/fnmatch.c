@@ -29,12 +29,7 @@
 #include <errno.h>
 #include <fnmatch.h>
 #include <ctype.h>
-
-#if HAVE_STRING_H || defined _LIBC
-# include <string.h>
-#else
-# include <strings.h>
-#endif
+#include <string.h>
 
 #if defined STDC_HEADERS || defined _LIBC
 # include <stdlib.h>
@@ -172,9 +167,7 @@ static int posixly_correct;
 
 # if !defined HAVE___STRCHRNUL && !defined _LIBC
 static char *
-__strchrnul (s, c)
-     const char *s;
-     int c;
+__strchrnul (const char *s, int c)
 {
   char *result = strchr (s, c);
   if (result == NULL)
@@ -185,9 +178,7 @@ __strchrnul (s, c)
 
 # if HANDLE_MULTIBYTE && !defined HAVE___STRCHRNUL && !defined _LIBC
 static wchar_t *
-__wcschrnul (s, c)
-     const wchar_t *s;
-     wint_t c;
+__wcschrnul (const wchar_t *s, wint_t c)
 {
   wchar_t *result = wcschr (s, c);
   if (result == NULL)
@@ -226,6 +217,7 @@ __wcschrnul (s, c)
 # define MEMPCPY(D, S, N) __mempcpy (D, S, N)
 # define MEMCHR(S, C, N) memchr (S, C, N)
 # define STRCOLL(S1, S2) strcoll (S1, S2)
+# define WIDE_CHAR_VERSION 0
 # include "fnmatch_loop.c"
 
 
@@ -324,14 +316,12 @@ is_char_class (const wchar_t *wcs)
 
 
 int
-fnmatch (pattern, string, flags)
-     const char *pattern;
-     const char *string;
-     int flags;
+fnmatch (const char *pattern, const char *string, int flags)
 {
 # if HANDLE_MULTIBYTE
   if (__builtin_expect (MB_CUR_MAX, 1) != 1)
     {
+      const char *orig_pattern = pattern;
       mbstate_t ps;
       size_t n;
       const char *p;
@@ -355,10 +345,8 @@ fnmatch (pattern, string, flags)
 						 alloca_used);
 	  n = mbsrtowcs (wpattern, &p, n + 1, &ps);
 	  if (__builtin_expect (n == (size_t) -1, 0))
-	    /* Something wrong.
-	       XXX Do we have to set `errno' to something which mbsrtows hasn't
-	       already done?  */
-	    return -1;
+	    /* Something wrong: Fall back to single byte matching. */
+	    goto try_singlebyte;
 	  if (p)
 	    {
 	      memset (&ps, '\0', sizeof (ps));
@@ -370,10 +358,8 @@ fnmatch (pattern, string, flags)
 	prepare_wpattern:
 	  n = mbsrtowcs (NULL, &pattern, 0, &ps);
 	  if (__builtin_expect (n == (size_t) -1, 0))
-	    /* Something wrong.
-	       XXX Do we have to set `errno' to something which mbsrtows hasn't
-	       already done?  */
-	    return -1;
+	    /*Something wrong: Fall back to single byte matching. */
+	    goto try_singlebyte;
 	  if (__builtin_expect (n >= (size_t) -1 / sizeof (wchar_t), 0))
 	    {
 	      __set_errno (ENOMEM);
@@ -400,14 +386,8 @@ fnmatch (pattern, string, flags)
 						alloca_used);
 	  n = mbsrtowcs (wstring, &p, n + 1, &ps);
 	  if (__builtin_expect (n == (size_t) -1, 0))
-	    {
-	      /* Something wrong.
-		 XXX Do we have to set `errno' to something which
-		 mbsrtows hasn't already done?  */
-	    free_return:
-	      free (wpattern_malloc);
-	      return -1;
-	    }
+	    /* Something wrong: Fall back to single byte matching. */
+	    goto free_and_try_singlebyte;
 	  if (p)
 	    {
 	      memset (&ps, '\0', sizeof (ps));
@@ -419,10 +399,8 @@ fnmatch (pattern, string, flags)
 	prepare_wstring:
 	  n = mbsrtowcs (NULL, &string, 0, &ps);
 	  if (__builtin_expect (n == (size_t) -1, 0))
-	    /* Something wrong.
-	       XXX Do we have to set `errno' to something which mbsrtows hasn't
-	       already done?  */
-	    goto free_return;
+	    /* Something wrong: Fall back to singlebyte matching. */
+	    goto free_and_try_singlebyte;
 	  if (__builtin_expect (n >= (size_t) -1 / sizeof (wchar_t), 0))
 	    {
 	      free (wpattern_malloc);
@@ -449,6 +427,10 @@ fnmatch (pattern, string, flags)
       free (wpattern_malloc);
 
       return res;
+      free_and_try_singlebyte:
+	free(wpattern_malloc);
+      try_singlebyte:
+	pattern = orig_pattern;
     }
 # endif  /* mbstate_t and mbsrtowcs or _LIBC.  */
 

@@ -24,14 +24,21 @@ subdir	:= login
 
 headers	:= utmp.h bits/utmp.h lastlog.h pty.h
 
-routines := getutent getutent_r getutid getutline getutid_r getutline_r \
+routines := getlogin getlogin_r setlogin \
+	    getutent getutent_r getutid getutline getutid_r getutline_r \
 	    utmp_file utmpname updwtmp getpt grantpt unlockpt ptsname
 
 CFLAGS-grantpt.c = -DLIBEXECDIR='"$(libexecdir)"'
 
-others = utmpdump pt_chown
+others = utmpdump
+
+include ../Makeconfig
+
+ifeq (yes,$(build-pt-chown))
+others += pt_chown
 others-pie = pt_chown
 install-others-programs = $(inst_libexecdir)/pt_chown
+endif
 
 subdir-dirs = programs
 vpath %.c programs
@@ -54,6 +61,9 @@ endif
 ifeq (yes,$(have-ssp))
 pt_chown-cflags += -fstack-protector
 endif
+ifeq (yes,$(have-ssp-strong))
+pt_chown-cflags += -fstack-protector-strong
+endif
 ifeq (yes,$(have-libcap))
 libcap = -lcap
 endif
@@ -67,8 +77,3 @@ endif
 $(inst_libexecdir)/pt_chown: $(objpfx)pt_chown $(+force)
 	$(make-target-directory)
 	-$(INSTALL_PROGRAM) -m 4755 -o root $< $@
-
-# Depend on libc.so so a DT_NEEDED is generated in the shared objects.
-# This ensures they will load libc.so for needed symbols if loaded by
-# a statically-linked program that hasn't already loaded it.
-$(objpfx)libutil.so: $(common-objpfx)libc.so $(common-objpfx)libc_nonshared.a

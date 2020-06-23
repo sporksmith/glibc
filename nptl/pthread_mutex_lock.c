@@ -25,48 +25,76 @@
 #include <lowlevellock.h>
 #include <stap-probe.h>
 
+#ifndef lll_lock_elision
+#define lll_lock_elision(lock, try_lock, private)	({ \
+      lll_lock (lock, private); 0; })
+#endif
 
+#ifndef lll_trylock_elision
+#define lll_trylock_elision(a,t) lll_trylock(a)
+#endif
+
+/* Some of the following definitions differ when pthread_mutex_cond_lock.c
+   includes this file.  */
 #ifndef LLL_MUTEX_LOCK
 # define LLL_MUTEX_LOCK(mutex) \
   lll_lock ((mutex)->__data.__lock, PTHREAD_MUTEX_PSHARED (mutex))
 # define LLL_MUTEX_TRYLOCK(mutex) \
   lll_trylock ((mutex)->__data.__lock)
-# define LLL_ROBUST_MUTEX_LOCK(mutex, id) \
-  lll_robust_lock ((mutex)->__data.__lock, id, \
-		   PTHREAD_ROBUST_MUTEX_PSHARED (mutex))
+# define LLL_ROBUST_MUTEX_LOCK_MODIFIER 0
+# define LLL_MUTEX_LOCK_ELISION(mutex) \
+  lll_lock_elision ((mutex)->__data.__lock, (mutex)->__data.__elision, \
+		   PTHREAD_MUTEX_PSHARED (mutex))
+# define LLL_MUTEX_TRYLOCK_ELISION(mutex) \
+  lll_trylock_elision((mutex)->__data.__lock, (mutex)->__data.__elision, \
+		   PTHREAD_MUTEX_PSHARED (mutex))
 #endif
 
+#ifndef FORCE_ELISION
+#define FORCE_ELISION(m, s)
+#endif
 
 static int __pthread_mutex_lock_full (pthread_mutex_t *mutex)
      __attribute_noinline__;
 
-
 int
-__pthread_mutex_lock (mutex)
-     pthread_mutex_t *mutex;
+__pthread_mutex_lock (pthread_mutex_t *mutex)
 {
   assert (sizeof (mutex->__size) >= sizeof (mutex->__data));
 
-  unsigned int type = PTHREAD_MUTEX_TYPE (mutex);
+  unsigned int type = PTHREAD_MUTEX_TYPE_ELISION (mutex);
 
   LIBC_PROBE (mutex_entry, 1, mutex);
 
-  if (__builtin_expect (type & ~PTHREAD_MUTEX_KIND_MASK_NP, 0))
+  if (__builtin_expect (type & ~(PTHREAD_MUTEX_KIND_MASK_NP
+				 | PTHREAD_MUTEX_ELISION_FLAGS_NP), 0))
     return __pthread_mutex_lock_full (mutex);
 
-  pid_t id = THREAD_GETMEM (THREAD_SELF, tid);
-
-  if (__builtin_expect (type, PTHREAD_MUTEX_TIMED_NP)
-      == PTHREAD_MUTEX_TIMED_NP)
+  if (__builtin_expect (type == PTHREAD_MUTEX_TIMED_NP, 1))
     {
+      FORCE_ELISION (mutex, goto elision);
     simple:
       /* Normal mutex.  */
       LLL_MUTEX_LOCK (mutex);
       assert (mutex->__data.__owner == 0);
     }
-  else if (__builtin_expect (type == PTHREAD_MUTEX_RECURSIVE_NP, 1))
+#ifdef HAVE_ELISION
+  else if (__builtin_expect (type == PTHREAD_MUTEX_TIMED_ELISION_NP, 1))
+    {
+  elision: __attribute__((unused))
+      /* This case can never happen on a system without elision,
+         as the mutex type initialization functions will not
+	 allow to set the elision flags.  */
+      /* Don't record owner or users for elision case.  This is a
+         tail call.  */
+      return LLL_MUTEX_LOCK_ELISION (mutex);
+    }
+#endif
+  else if (__builtin_expect (PTHREAD_MUTEX_TYPE (mutex)
+			     == PTHREAD_MUTEX_RECURSIVE_NP, 1))
     {
       /* Recursive mutex.  */
+      pid_t id = THREAD_GETMEM (THREAD_SELF, tid);
 
       /* Check whether we already hold the mutex.  */
       if (mutex->__data.__owner == id)
@@ -87,7 +115,8 @@ __pthread_mutex_lock (mutex)
       assert (mutex->__data.__owner == 0);
       mutex->__data.__count = 1;
     }
-  else if (__builtin_expect (type == PTHREAD_MUTEX_ADAPTIVE_NP, 1))
+  else if (__builtin_expect (PTHREAD_MUTEX_TYPE (mutex)
+			  == PTHREAD_MUTEX_ADAPTIVE_NP, 1))
     {
       if (! __is_smp)
 	goto simple;
@@ -117,12 +146,15 @@ __pthread_mutex_lock (mutex)
     }
   else
     {
-      assert (type == PTHREAD_MUTEX_ERRORCHECK_NP);
+      pid_t id = THREAD_GETMEM (THREAD_SELF, tid);
+      assert (PTHREAD_MUTEX_TYPE (mutex) == PTHREAD_MUTEX_ERRORCHECK_NP);
       /* Check whether we already hold the mutex.  */
       if (__builtin_expect (mutex->__data.__owner == id, 0))
 	return EDEADLK;
       goto simple;
     }
+
+  pid_t id = THREAD_GETMEM (THREAD_SELF, tid);
 
   /* Record the ownership.  */
   mutex->__data.__owner = id;
@@ -149,19 +181,42 @@ __pthread_mutex_lock_full (pthread_mutex_t *mutex)
     case PTHREAD_MUTEX_ROBUST_ADAPTIVE_NP:
       THREAD_SETMEM (THREAD_SELF, robust_head.list_op_pending,
 		     &mutex->__data.__list.__next);
+      /* We need to set op_pending before starting the operation.  Also
+	 see comments at ENQUEUE_MUTEX.  */
+      __asm ("" ::: "memory");
 
       oldval = mutex->__data.__lock;
-      do
+      /* This is set to FUTEX_WAITERS iff we might have shared the
+	 FUTEX_WAITERS flag with other threads, and therefore need to keep it
+	 set to avoid lost wake-ups.  We have the same requirement in the
+	 simple mutex algorithm.
+	 We start with value zero for a normal mutex, and FUTEX_WAITERS if we
+	 are building the special case mutexes for use from within condition
+	 variables.  */
+      unsigned int assume_other_futex_waiters = LLL_ROBUST_MUTEX_LOCK_MODIFIER;
+      while (1)
 	{
-	again:
+	  /* Try to acquire the lock through a CAS from 0 (not acquired) to
+	     our TID | assume_other_futex_waiters.  */
+	  if (__glibc_likely (oldval == 0))
+	    {
+	      oldval
+	        = atomic_compare_and_exchange_val_acq (&mutex->__data.__lock,
+	            id | assume_other_futex_waiters, 0);
+	      if (__glibc_likely (oldval == 0))
+		break;
+	    }
+
 	  if ((oldval & FUTEX_OWNER_DIED) != 0)
 	    {
 	      /* The previous owner died.  Try locking the mutex.  */
 	      int newval = id;
 #ifdef NO_INCR
+	      /* We are not taking assume_other_futex_waiters into accoount
+		 here simply because we'll set FUTEX_WAITERS anyway.  */
 	      newval |= FUTEX_WAITERS;
 #else
-	      newval |= (oldval & FUTEX_WAITERS);
+	      newval |= (oldval & FUTEX_WAITERS) | assume_other_futex_waiters;
 #endif
 
 	      newval
@@ -171,7 +226,7 @@ __pthread_mutex_lock_full (pthread_mutex_t *mutex)
 	      if (newval != oldval)
 		{
 		  oldval = newval;
-		  goto again;
+		  continue;
 		}
 
 	      /* We got the mutex.  */
@@ -179,7 +234,12 @@ __pthread_mutex_lock_full (pthread_mutex_t *mutex)
 	      /* But it is inconsistent unless marked otherwise.  */
 	      mutex->__data.__owner = PTHREAD_MUTEX_INCONSISTENT;
 
+	      /* We must not enqueue the mutex before we have acquired it.
+		 Also see comments at ENQUEUE_MUTEX.  */
+	      __asm ("" ::: "memory");
 	      ENQUEUE_MUTEX (mutex);
+	      /* We need to clear op_pending after we enqueue the mutex.  */
+	      __asm ("" ::: "memory");
 	      THREAD_SETMEM (THREAD_SELF, robust_head.list_op_pending, NULL);
 
 	      /* Note that we deliberately exit here.  If we fall
@@ -201,6 +261,8 @@ __pthread_mutex_lock_full (pthread_mutex_t *mutex)
 	      int kind = PTHREAD_MUTEX_TYPE (mutex);
 	      if (kind == PTHREAD_MUTEX_ROBUST_ERRORCHECK_NP)
 		{
+		  /* We do not need to ensure ordering wrt another memory
+		     access.  Also see comments at ENQUEUE_MUTEX. */
 		  THREAD_SETMEM (THREAD_SELF, robust_head.list_op_pending,
 				 NULL);
 		  return EDEADLK;
@@ -208,6 +270,8 @@ __pthread_mutex_lock_full (pthread_mutex_t *mutex)
 
 	      if (kind == PTHREAD_MUTEX_ROBUST_RECURSIVE_NP)
 		{
+		  /* We do not need to ensure ordering wrt another memory
+		     access.  */
 		  THREAD_SETMEM (THREAD_SELF, robust_head.list_op_pending,
 				 NULL);
 
@@ -222,23 +286,57 @@ __pthread_mutex_lock_full (pthread_mutex_t *mutex)
 		}
 	    }
 
-	  oldval = LLL_ROBUST_MUTEX_LOCK (mutex, id);
-
-	  if (__builtin_expect (mutex->__data.__owner
-				== PTHREAD_MUTEX_NOTRECOVERABLE, 0))
+	  /* We cannot acquire the mutex nor has its owner died.  Thus, try
+	     to block using futexes.  Set FUTEX_WAITERS if necessary so that
+	     other threads are aware that there are potentially threads
+	     blocked on the futex.  Restart if oldval changed in the
+	     meantime.  */
+	  if ((oldval & FUTEX_WAITERS) == 0)
 	    {
-	      /* This mutex is now not recoverable.  */
-	      mutex->__data.__count = 0;
-	      lll_unlock (mutex->__data.__lock,
-			  PTHREAD_ROBUST_MUTEX_PSHARED (mutex));
-	      THREAD_SETMEM (THREAD_SELF, robust_head.list_op_pending, NULL);
-	      return ENOTRECOVERABLE;
+	      if (atomic_compare_and_exchange_bool_acq (&mutex->__data.__lock,
+							oldval | FUTEX_WAITERS,
+							oldval)
+		  != 0)
+		{
+		  oldval = mutex->__data.__lock;
+		  continue;
+		}
+	      oldval |= FUTEX_WAITERS;
 	    }
+
+	  /* It is now possible that we share the FUTEX_WAITERS flag with
+	     another thread; therefore, update assume_other_futex_waiters so
+	     that we do not forget about this when handling other cases
+	     above and thus do not cause lost wake-ups.  */
+	  assume_other_futex_waiters |= FUTEX_WAITERS;
+
+	  /* Block using the futex and reload current lock value.  */
+	  lll_futex_wait (&mutex->__data.__lock, oldval,
+			  PTHREAD_ROBUST_MUTEX_PSHARED (mutex));
+	  oldval = mutex->__data.__lock;
 	}
-      while ((oldval & FUTEX_OWNER_DIED) != 0);
+
+      /* We have acquired the mutex; check if it is still consistent.  */
+      if (__builtin_expect (mutex->__data.__owner
+			    == PTHREAD_MUTEX_NOTRECOVERABLE, 0))
+	{
+	  /* This mutex is now not recoverable.  */
+	  mutex->__data.__count = 0;
+	  int private = PTHREAD_ROBUST_MUTEX_PSHARED (mutex);
+	  lll_unlock (mutex->__data.__lock, private);
+	  /* FIXME This violates the mutex destruction requirements.  See
+	     __pthread_mutex_unlock_full.  */
+	  THREAD_SETMEM (THREAD_SELF, robust_head.list_op_pending, NULL);
+	  return ENOTRECOVERABLE;
+	}
 
       mutex->__data.__count = 1;
+      /* We must not enqueue the mutex before we have acquired it.
+	 Also see comments at ENQUEUE_MUTEX.  */
+      __asm ("" ::: "memory");
       ENQUEUE_MUTEX (mutex);
+      /* We need to clear op_pending after we enqueue the mutex.  */
+      __asm ("" ::: "memory");
       THREAD_SETMEM (THREAD_SELF, robust_head.list_op_pending, NULL);
       break;
 
@@ -255,10 +353,15 @@ __pthread_mutex_lock_full (pthread_mutex_t *mutex)
 	int robust = mutex->__data.__kind & PTHREAD_MUTEX_ROBUST_NORMAL_NP;
 
 	if (robust)
-	  /* Note: robust PI futexes are signaled by setting bit 0.  */
-	  THREAD_SETMEM (THREAD_SELF, robust_head.list_op_pending,
-			 (void *) (((uintptr_t) &mutex->__data.__list.__next)
-				   | 1));
+	  {
+	    /* Note: robust PI futexes are signaled by setting bit 0.  */
+	    THREAD_SETMEM (THREAD_SELF, robust_head.list_op_pending,
+			   (void *) (((uintptr_t) &mutex->__data.__list.__next)
+				     | 1));
+	    /* We need to set op_pending before starting the operation.  Also
+	       see comments at ENQUEUE_MUTEX.  */
+	    __asm ("" ::: "memory");
+	  }
 
 	oldval = mutex->__data.__lock;
 
@@ -267,12 +370,16 @@ __pthread_mutex_lock_full (pthread_mutex_t *mutex)
 	  {
 	    if (kind == PTHREAD_MUTEX_ERRORCHECK_NP)
 	      {
+		/* We do not need to ensure ordering wrt another memory
+		   access.  */
 		THREAD_SETMEM (THREAD_SELF, robust_head.list_op_pending, NULL);
 		return EDEADLK;
 	      }
 
 	    if (kind == PTHREAD_MUTEX_RECURSIVE_NP)
 	      {
+		/* We do not need to ensure ordering wrt another memory
+		   access.  */
 		THREAD_SETMEM (THREAD_SELF, robust_head.list_op_pending, NULL);
 
 		/* Just bump the counter.  */
@@ -335,7 +442,12 @@ __pthread_mutex_lock_full (pthread_mutex_t *mutex)
 	    /* But it is inconsistent unless marked otherwise.  */
 	    mutex->__data.__owner = PTHREAD_MUTEX_INCONSISTENT;
 
+	    /* We must not enqueue the mutex before we have acquired it.
+	       Also see comments at ENQUEUE_MUTEX.  */
+	    __asm ("" ::: "memory");
 	    ENQUEUE_MUTEX_PI (mutex);
+	    /* We need to clear op_pending after we enqueue the mutex.  */
+	    __asm ("" ::: "memory");
 	    THREAD_SETMEM (THREAD_SELF, robust_head.list_op_pending, NULL);
 
 	    /* Note that we deliberately exit here.  If we fall
@@ -363,6 +475,8 @@ __pthread_mutex_lock_full (pthread_mutex_t *mutex)
 						  PTHREAD_ROBUST_MUTEX_PSHARED (mutex)),
 			      0, 0);
 
+	    /* To the kernel, this will be visible after the kernel has
+	       acquired the mutex in the syscall.  */
 	    THREAD_SETMEM (THREAD_SELF, robust_head.list_op_pending, NULL);
 	    return ENOTRECOVERABLE;
 	  }
@@ -370,7 +484,12 @@ __pthread_mutex_lock_full (pthread_mutex_t *mutex)
 	mutex->__data.__count = 1;
 	if (robust)
 	  {
+	    /* We must not enqueue the mutex before we have acquired it.
+	       Also see comments at ENQUEUE_MUTEX.  */
+	    __asm ("" ::: "memory");
 	    ENQUEUE_MUTEX_PI (mutex);
+	    /* We need to clear op_pending after we enqueue the mutex.  */
+	    __asm ("" ::: "memory");
 	    THREAD_SETMEM (THREAD_SELF, robust_head.list_op_pending, NULL);
 	  }
       }
@@ -484,8 +603,8 @@ hidden_def (__pthread_mutex_lock)
 
 #ifdef NO_INCR
 void
-__pthread_mutex_cond_lock_adjust (mutex)
-     pthread_mutex_t *mutex;
+internal_function
+__pthread_mutex_cond_lock_adjust (pthread_mutex_t *mutex)
 {
   assert ((mutex->__data.__kind & PTHREAD_MUTEX_PRIO_INHERIT_NP) != 0);
   assert ((mutex->__data.__kind & PTHREAD_MUTEX_ROBUST_NORMAL_NP) == 0);

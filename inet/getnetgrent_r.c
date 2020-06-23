@@ -234,6 +234,14 @@ endnetgrent (void)
   __libc_lock_unlock (lock);
 }
 
+static const char *
+get_nonempty_val (const char *in)
+{
+  if (*in == '\0')
+    return NULL;
+  return in;
+}
+
 #ifdef USE_NSCD
 static enum nss_status
 nscd_getnetgrent (struct __netgrent *datap, char *buffer, size_t buflen,
@@ -243,11 +251,11 @@ nscd_getnetgrent (struct __netgrent *datap, char *buffer, size_t buflen,
     return NSS_STATUS_UNAVAIL;
 
   datap->type = triple_val;
-  datap->val.triple.host = datap->cursor;
+  datap->val.triple.host = get_nonempty_val (datap->cursor);
   datap->cursor = (char *) __rawmemchr (datap->cursor, '\0') + 1;
-  datap->val.triple.user = datap->cursor;
+  datap->val.triple.user = get_nonempty_val (datap->cursor);
   datap->cursor = (char *) __rawmemchr (datap->cursor, '\0') + 1;
-  datap->val.triple.domain = datap->cursor;
+  datap->val.triple.domain = get_nonempty_val (datap->cursor);
   datap->cursor = (char *) __rawmemchr (datap->cursor, '\0') + 1;
 
   return NSS_STATUS_SUCCESS;
@@ -289,7 +297,10 @@ __internal_getnetgrent_r (char **hostp, char **userp, char **domainp,
     {
       status = DL_CALL_FCT (*fct, (datap, buffer, buflen, &errno));
 
-      if (status == NSS_STATUS_RETURN)
+      if (status == NSS_STATUS_RETURN
+	  /* The service returned a NOTFOUND, but there are more groups that we
+	     need to resolve before we give up.  */
+	  || (status == NSS_STATUS_NOTFOUND && datap->needed_groups != NULL))
 	{
 	  /* This was the last one for this group.  Look at next group
 	     if available.  */

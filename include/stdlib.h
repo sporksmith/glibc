@@ -37,7 +37,8 @@ extern __typeof (secure_getenv) __libc_secure_getenv;
 libc_hidden_proto (__libc_secure_getenv)
 libc_hidden_proto (bsearch)
 libc_hidden_proto (qsort)
-libc_hidden_proto (qsort_r)
+extern __typeof (qsort_r) __qsort_r;
+libc_hidden_proto (__qsort_r)
 libc_hidden_proto (lrand48_r)
 libc_hidden_proto (wctomb)
 
@@ -77,6 +78,7 @@ extern struct drand48_data __libc_drand48_data attribute_hidden;
 extern int __setenv (const char *__name, const char *__value, int __replace);
 extern int __unsetenv (const char *__name);
 extern int __clearenv (void);
+extern char *__mktemp (char *__template) __THROW __nonnull ((1));
 extern char *__canonicalize_file_name (const char *__name);
 extern char *__realpath (const char *__name, char *__resolved);
 extern int __ptsname_r (int __fd, char *__buf, size_t __buflen);
@@ -193,6 +195,24 @@ libc_hidden_proto (strtoll)
 libc_hidden_proto (strtoul)
 libc_hidden_proto (strtoull)
 
+extern float __strtof_nan (const char *, char **, char) internal_function;
+extern double __strtod_nan (const char *, char **, char) internal_function;
+extern long double __strtold_nan (const char *, char **, char)
+     internal_function;
+extern float __wcstof_nan (const wchar_t *, wchar_t **, wchar_t)
+     internal_function;
+extern double __wcstod_nan (const wchar_t *, wchar_t **, wchar_t)
+     internal_function;
+extern long double __wcstold_nan (const wchar_t *, wchar_t **, wchar_t)
+     internal_function;
+
+libc_hidden_proto (__strtof_nan)
+libc_hidden_proto (__strtod_nan)
+libc_hidden_proto (__strtold_nan)
+libc_hidden_proto (__wcstof_nan)
+libc_hidden_proto (__wcstod_nan)
+libc_hidden_proto (__wcstold_nan)
+
 extern char *__ecvt (double __value, int __ndigit, int *__restrict __decpt,
 		     int *__restrict __sign);
 extern char *__fcvt (double __value, int __ndigit, int *__restrict __decpt,
@@ -216,7 +236,7 @@ extern int __qfcvt_r (long double __value, int __ndigit,
 		      int *__restrict __decpt, int *__restrict __sign,
 		      char *__restrict __buf, size_t __len);
 
-# ifndef NOT_IN_libc
+# if IS_IN (libc)
 #  undef MB_CUR_MAX
 #  define MB_CUR_MAX (_NL_CURRENT_WORD (LC_CTYPE, _NL_CTYPE_MB_CUR_MAX))
 

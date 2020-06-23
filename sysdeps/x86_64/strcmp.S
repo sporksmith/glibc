@@ -22,8 +22,6 @@
 
 #include <sysdep.h>
 #include "asm-syntax.h"
-#include "bp-sym.h"
-#include "bp-asm.h"
 
 #undef UPDATE_STRNCMP_COUNTER
 
@@ -128,8 +126,8 @@ libc_hidden_def (__strncasecmp)
 	/* FALLTHROUGH to strncasecmp_l.  */
 #endif
 
-ENTRY (BP_SYM (STRCMP))
-#ifdef NOT_IN_libc
+ENTRY (STRCMP)
+#if !IS_IN (libc)
 /* Simple version since we can't use SSE registers in ld.so.  */
 L(oop):	movb	(%rdi), %al
 	cmpb	(%rsi), %al
@@ -146,8 +144,8 @@ L(neq):	movl	$1, %eax
 	movl	$-1, %ecx
 	cmovbl	%ecx, %eax
 	ret
-END (BP_SYM (STRCMP))
-#else	/* NOT_IN_libc */
+END (STRCMP)
+#else	/* !IS_IN (libc) */
 # ifdef USE_AS_STRCASECMP_L
 	/* We have to fall back on the C implementation for locales
 	   with encodings not matching ASCII for single bytes.  */
@@ -2282,7 +2280,7 @@ LABEL(Byte0):
 
 	sub	%ecx, %eax
 	ret
-END (BP_SYM (STRCMP))
+END (STRCMP)
 
 	.section .rodata,"a",@progbits
 	.p2align 3
@@ -2303,5 +2301,5 @@ LABEL(unaligned_table):
 	.int	LABEL(ashr_14) - LABEL(unaligned_table)
 	.int	LABEL(ashr_15) - LABEL(unaligned_table)
 	.int	LABEL(ashr_0) - LABEL(unaligned_table)
-#endif /* NOT_IN_libc */
+#endif /* !IS_IN (libc) */
 libc_hidden_builtin_def (STRCMP)

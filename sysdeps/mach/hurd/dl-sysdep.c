@@ -187,7 +187,7 @@ unfmh();			/* XXX */
 	    assert_perror (err);
 
 	    lastslash = strrchr (p, '/');
-	    l = _dl_map_object_from_fd (lastslash ? lastslash + 1 : p,
+	    l = _dl_map_object_from_fd (lastslash ? lastslash + 1 : p, NULL,
 					memobj, strdup (p), 0);
 
 	    /* Squirrel away the memory object port where it
@@ -554,7 +554,7 @@ __access (const char *file, int type)
 }
 
 pid_t weak_function
-__getpid ()
+__getpid (void)
 {
   pid_t pid, ppid;
   int orphaned;

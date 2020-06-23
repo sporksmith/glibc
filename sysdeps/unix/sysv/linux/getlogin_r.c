@@ -32,9 +32,7 @@ static int getlogin_r_fd0 (char *name, size_t namesize);
 
 int
 attribute_hidden
-__getlogin_r_loginuid (name, namesize)
-     char *name;
-     size_t namesize;
+__getlogin_r_loginuid (char *name, size_t namesize)
 {
   int fd = open_not_cancel_2 ("/proc/self/loginuid", O_RDONLY);
   if (fd == -1)
@@ -55,6 +53,15 @@ __getlogin_r_loginuid (name, namesize)
 	  uid = strtoul (uidbuf, &endp, 10),
 	  endp == uidbuf || *endp != '\0'))
     return -1;
+
+  /* If there is no login uid, linux sets /proc/self/loginid to the sentinel
+     value of, (uid_t) -1, so check if that value is set and return early to
+     avoid making unneeded nss lookups. */
+  if (uid == (uid_t) -1)
+    {
+      __set_errno (ENXIO);
+      return ENXIO;
+    }
 
   size_t buflen = 1024;
   char *buf = alloca (buflen);
@@ -109,9 +116,7 @@ __getlogin_r_loginuid (name, namesize)
    code.  Otherwise return 0.  */
 
 int
-getlogin_r (name, namesize)
-     char *name;
-     size_t namesize;
+getlogin_r (char *name, size_t namesize)
 {
   int res = __getlogin_r_loginuid (name, namesize);
   if (res >= 0)

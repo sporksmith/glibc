@@ -30,6 +30,7 @@
 #include <list.h>
 #include <lowlevellock.h>
 #include <kernel-features.h>
+#include <stack-aliasing.h>
 
 
 #ifndef NEED_SEPARATE_REGISTER_STACK
@@ -122,11 +123,6 @@ static uintptr_t in_flight_stack;
    initialize this, since it's done in __pthread_initialize_minimal.  */
 list_t __stack_user __attribute__ ((nocommon));
 hidden_data_def (__stack_user)
-
-#if COLORING_INCREMENT != 0
-/* Number of threads created.  */
-static unsigned int nptl_ncreated;
-#endif
 
 
 /* Check whether the stack is still used or not.  */
@@ -355,7 +351,7 @@ allocate_stack (const struct pthread_attr *attr, struct pthread **pdp,
 
   /* Get the stack size from the attribute if it is set.  Otherwise we
      use the default we determined at start time.  */
-  size = attr->stacksize ?: __default_stacksize;
+  size = attr->stacksize ?: __default_pthread_attr.stacksize;
 
   /* Get memory for the stack.  */
   if (__builtin_expect (attr->flags & ATTR_FLAG_STACKADDR, 0))
@@ -455,14 +451,6 @@ allocate_stack (const struct pthread_attr *attr, struct pthread **pdp,
       const int prot = (PROT_READ | PROT_WRITE
 			| ((GL(dl_stack_flags) & PF_X) ? PROT_EXEC : 0));
 
-#if COLORING_INCREMENT != 0
-      /* Add one more page for stack coloring.  Don't do it for stacks
-	 with 16 times pagesize or larger.  This might just cause
-	 unnecessary misalignment.  */
-      if (size <= 16 * pagesize_m1)
-	size += pagesize_m1 + 1;
-#endif
-
       /* Adjust the stack size for alignment.  */
       size &= ~__static_tls_align_m1;
       assert (size != 0);
@@ -470,6 +458,10 @@ allocate_stack (const struct pthread_attr *attr, struct pthread **pdp,
       /* Make sure the size of the stack is enough for the guard and
 	 eventually the thread descriptor.  */
       guardsize = (attr->guardsize + pagesize_m1) & ~pagesize_m1;
+      if (guardsize < attr->guardsize || size + guardsize < guardsize)
+	/* Arithmetic overflow.  */
+	return EINVAL;
+      size += guardsize;
       if (__builtin_expect (size < ((guardsize + __static_tls_size
 				     + MINIMAL_REST_STACK + pagesize_m1)
 				    & ~pagesize_m1),
@@ -501,34 +493,11 @@ allocate_stack (const struct pthread_attr *attr, struct pthread **pdp,
 	     So we can never get a null pointer back from mmap.  */
 	  assert (mem != NULL);
 
-#if COLORING_INCREMENT != 0
-	  /* Atomically increment NCREATED.  */
-	  unsigned int ncreated = atomic_increment_val (&nptl_ncreated);
-
-	  /* We chose the offset for coloring by incrementing it for
-	     every new thread by a fixed amount.  The offset used
-	     module the page size.  Even if coloring would be better
-	     relative to higher alignment values it makes no sense to
-	     do it since the mmap() interface does not allow us to
-	     specify any alignment for the returned memory block.  */
-	  size_t coloring = (ncreated * COLORING_INCREMENT) & pagesize_m1;
-
-	  /* Make sure the coloring offsets does not disturb the alignment
-	     of the TCB and static TLS block.  */
-	  if (__builtin_expect ((coloring & __static_tls_align_m1) != 0, 0))
-	    coloring = (((coloring + __static_tls_align_m1)
-			 & ~(__static_tls_align_m1))
-			& ~pagesize_m1);
-#else
-	  /* Unless specified we do not make any adjustments.  */
-# define coloring 0
-#endif
-
 	  /* Place the thread descriptor at the end of the stack.  */
 #if TLS_TCB_AT_TP
-	  pd = (struct pthread *) ((char *) mem + size - coloring) - 1;
+	  pd = (struct pthread *) ((char *) mem + size) - 1;
 #elif TLS_DTV_AT_TP
-	  pd = (struct pthread *) ((((uintptr_t) mem + size - coloring
+	  pd = (struct pthread *) ((((uintptr_t) mem + size
 				    - __static_tls_size)
 				    & ~__static_tls_align_m1)
 				   - TLS_PRE_TCB_SIZE);
@@ -1157,7 +1126,6 @@ __nptl_setxid (struct xid_command *cmdp)
 static inline void __attribute__((always_inline))
 init_one_static_tls (struct pthread *curp, struct link_map *map)
 {
-  dtv_t *dtv = GET_DTV (TLS_TPADJ (curp));
 # if TLS_TCB_AT_TP
   void *dest = (char *) curp - map->l_tls_offset;
 # elif TLS_DTV_AT_TP
@@ -1166,11 +1134,9 @@ init_one_static_tls (struct pthread *curp, struct link_map *map)
 #  error "Either TLS_TCB_AT_TP or TLS_DTV_AT_TP must be defined"
 # endif
 
-  /* Fill in the DTV slot so that a later LD/GD access will find it.  */
-  dtv[map->l_tls_modid].pointer.val = dest;
-  dtv[map->l_tls_modid].pointer.is_static = true;
-
-  /* Initialize the memory.  */
+  /* We cannot delay the initialization of the Static TLS area, since
+     it can be accessed with LE or IE, but since the DTV is only used
+     by GD and LD, we can delay its update to avoid a race.  */
   memset (__mempcpy (dest, map->l_tls_initimage, map->l_tls_initimage_size),
 	  '\0', map->l_tls_blocksize - map->l_tls_initimage_size);
 }

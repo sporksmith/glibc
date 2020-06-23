@@ -29,15 +29,17 @@ static char rcsid[] = "$NetBSD: $";
 int
 ___isnanl (long double x)
 {
-	int64_t hx;
-	int64_t lx __attribute__ ((unused));
-	GET_LDOUBLE_WORDS64(hx,lx,x);
-	hx &= 0x7fffffffffffffffLL;
-	hx = 0x7ff0000000000000LL - hx;
-	return (int)((u_int64_t)hx>>63);
+  uint64_t hx;
+  double xhi;
+
+  xhi = ldbl_high (x);
+  EXTRACT_WORDS64 (hx, xhi);
+  hx &= 0x7fffffffffffffffLL;
+  hx = 0x7ff0000000000000LL - hx;
+  return (int) (hx >> 63);
 }
 hidden_ver (___isnanl, __isnanl)
-#ifndef IS_IN_libm
+#if !IS_IN (libm)
 weak_alias (___isnanl, ____isnanl)
 long_double_symbol (libc, ___isnanl, isnanl);
 long_double_symbol (libc, ____isnanl, __isnanl);

@@ -40,8 +40,6 @@ long int
 __pathconf (const char *file, int name)
 {
   struct statfs fsbuf;
-  int fd;
-  int flags;
 
   switch (name)
     {
@@ -56,21 +54,6 @@ __pathconf (const char *file, int name)
 
     case _PC_CHOWN_RESTRICTED:
       return __statfs_chown_restricted (__statfs (file, &fsbuf), &fsbuf);
-
-    case _PC_PIPE_BUF:
-      flags = O_RDONLY|O_NONBLOCK|O_NOCTTY;
-#ifdef O_CLOEXEC
-      flags |= O_CLOEXEC;
-#endif
-      fd = open_not_cancel_2 (file, flags);
-      if (fd >= 0)
-	{
-	  long int r = __fcntl (fd, F_GETPIPE_SZ);
-	  close_not_cancel_no_status (fd);
-	  if (r > 0)
-	    return r;
-	}
-      /* FALLTHROUGH */
 
     default:
       return posix_pathconf (file, name);
@@ -301,11 +284,16 @@ __statfs_chown_restricted (int result, const struct statfs *fsbuf)
       return -1;
     }
 
+#ifdef __ASSUME_XFS_RESTRICTED_CHOWN
+  return 1;
+#else
   int fd;
+  int save_errno;
   long int retval = 1;
   switch (fsbuf->f_type)
     {
     case XFS_SUPER_MAGIC:
+      save_errno = errno;
       /* Read the value from /proc/sys/fs/xfs/restrict_chown.  If we cannot
 	 read it default to assume the restriction is in place.  */
       fd = open_not_cancel_2 ("/proc/sys/fs/xfs/restrict_chown", O_RDONLY);
@@ -318,6 +306,7 @@ __statfs_chown_restricted (int result, const struct statfs *fsbuf)
 
 	  close_not_cancel_no_status (fd);
 	}
+      __set_errno (save_errno);
       break;
 
     default:
@@ -325,4 +314,5 @@ __statfs_chown_restricted (int result, const struct statfs *fsbuf)
     }
 
   return retval;
+#endif
 }

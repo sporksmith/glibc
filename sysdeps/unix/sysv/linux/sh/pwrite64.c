@@ -22,7 +22,6 @@
 
 #include <sysdep-cancel.h>
 #include <sys/syscall.h>
-#include <bp-checks.h>
 
 #include <kernel-features.h>
 
@@ -35,17 +34,13 @@
 
 
 ssize_t
-__libc_pwrite64 (fd, buf, count, offset)
-     int fd;
-     const void *buf;
-     size_t count;
-     off64_t offset;
+__libc_pwrite64 (int fd, const void *buf, size_t count, off64_t offset)
 {
   ssize_t result;
 
   if (SINGLE_THREAD_P)
     {
-     result = INLINE_SYSCALL (pwrite, 6, fd, CHECK_N (buf, count), count, 0,
+     result = INLINE_SYSCALL (pwrite, 6, fd, buf, count, 0,
 			      __LONG_LONG_PAIR ((off_t) (offset >> 32),
 			     (off_t) (offset & 0xffffffff)));
 
@@ -54,7 +49,7 @@ __libc_pwrite64 (fd, buf, count, offset)
 
   int oldtype = LIBC_CANCEL_ASYNC ();
 
-  result = INLINE_SYSCALL (pwrite, 6, fd, CHECK_N (buf, count), count, 0,
+  result = INLINE_SYSCALL (pwrite, 6, fd, buf, count, 0,
 			   __LONG_LONG_PAIR ((off_t) (offset >> 32),
 					     (off_t) (offset & 0xffffffff)));
 

@@ -17,8 +17,6 @@
    <http://www.gnu.org/licenses/>.  */
 
 #include <sysdep.h>
-#include <bp-sym.h>
-#include <bp-asm.h>
 
 /* __ptr_t [r3] memset (__ptr_t s [r3], int c [r4], size_t n [r5]));
    Returns 's'.
@@ -28,7 +26,7 @@
    to 0, to take advantage of the dcbz instruction.  */
 
 	.machine power4
-EALIGN (BP_SYM (memset), 5, 0)
+EALIGN (memset, 5, 0)
 	CALL_MCOUNT
 
 #define rTMP	r0
@@ -52,7 +50,7 @@ L(_memset):
 
 /* Align to word boundary.  */
 	cmplwi	cr5, rLEN, 31
-	rlwimi	rCHR, rCHR, 8, 16, 23 /* Replicate byte to halfword.  */
+	insrwi	rCHR, rCHR, 8, 16     /* Replicate byte to halfword.  */
 	beq+	L(aligned)
 	mtcrf	0x01, rMEMP0
 	subfic	rALIGN, rALIGN, 4
@@ -67,7 +65,7 @@ L(g0):
 /* Handle the case of size < 31.  */
 L(aligned):
 	mtcrf	0x01, rLEN
-	rlwimi	rCHR, rCHR, 16, 0, 15 /* Replicate halfword to word.  */
+	insrwi	rCHR, rCHR, 16, 0    /* Replicate halfword to word.  */
 	ble	cr5, L(medium)
 /* Align to 32-byte boundary.  */
 	andi.	rALIGN, rMEMP, 0x1C
@@ -224,5 +222,5 @@ L(medium_28t):
         stw     rCHR, -4(rMEMP)
 	stw	rCHR, -8(rMEMP)
 	blr
-END (BP_SYM (memset))
+END (memset)
 libc_hidden_builtin_def (memset)

@@ -269,9 +269,7 @@ __libc_lock_define_initialized (static, _ufc_tables_lock)
 #ifdef DEBUG
 
 void
-_ufc_prbits(a, n)
-     ufc_long *a;
-     int n;
+_ufc_prbits (ufc_long *a, int n)
 {
   ufc_long i, j, t, tmp;
   n /= 8;
@@ -287,9 +285,7 @@ _ufc_prbits(a, n)
 }
 
 static void
-_ufc_set_bits(v, b)
-     ufc_long v;
-     ufc_long *b;
+_ufc_set_bits (ufc_long v, ufc_long *b)
 {
   ufc_long i;
   *b = 0;
@@ -309,18 +305,14 @@ _ufc_set_bits(v, b)
  */
 
 void
-_ufc_clearmem(start, cnt)
-     char *start;
-     int cnt;
+_ufc_clearmem (char *start, int cnt)
 {
   while(cnt--)
     *start++ = '\0';
 }
 
 void
-_ufc_copymem(from, to, cnt)
-     char *from, *to;
-     int cnt;
+_ufc_copymem (char *from, char *to, int cnt)
 {
   while(cnt--)
     *to++ = *from++;
@@ -340,8 +332,7 @@ _ufc_copymem(from, to, cnt)
  */
 
 void
-__init_des_r(__data)
-     struct crypt_data * __restrict __data;
+__init_des_r (struct crypt_data * __restrict __data)
 {
   int comes_from_bit;
   int bit, sg;
@@ -554,7 +545,7 @@ small_tables_done:
 }
 
 void
-__init_des()
+__init_des (void)
 {
   __init_des_r(&_ufc_foobar);
 }
@@ -566,9 +557,7 @@ __init_des()
 
 #ifdef _UFC_32_
 STATIC void
-shuffle_sb(k, saltbits)
-     long32 *k;
-     ufc_long saltbits;
+shuffle_sb (long32 *k, ufc_long saltbits)
 {
   ufc_long j;
   long32 x;
@@ -582,9 +571,7 @@ shuffle_sb(k, saltbits)
 
 #ifdef _UFC_64_
 STATIC void
-shuffle_sb(k, saltbits)
-     long64 *k;
-     ufc_long saltbits;
+shuffle_sb (long64 *k, ufc_long saltbits)
 {
   ufc_long j;
   long64 x;
@@ -622,9 +609,7 @@ bad_for_salt (char c)
  */
 
 bool
-_ufc_setup_salt_r(s, __data)
-     const char *s;
-     struct crypt_data * __restrict __data;
+_ufc_setup_salt_r (const char *s, struct crypt_data * __restrict __data)
 {
   ufc_long i, j, saltbits;
   char s0, s1;
@@ -683,9 +668,7 @@ _ufc_setup_salt_r(s, __data)
 }
 
 void
-_ufc_mk_keytab_r(key, __data)
-     const char *key;
-     struct crypt_data * __restrict __data;
+_ufc_mk_keytab_r (const char *key, struct crypt_data * __restrict __data)
 {
   ufc_long v1, v2, *k1;
   int i;
@@ -743,9 +726,7 @@ _ufc_mk_keytab_r(key, __data)
  */
 
 void
-_ufc_dofinalperm_r(res, __data)
-     ufc_long *res;
-     struct crypt_data * __restrict __data;
+_ufc_dofinalperm_r (ufc_long *res, struct crypt_data * __restrict __data)
 {
   ufc_long v1, v2, x;
   ufc_long l1,l2,r1,r2;
@@ -787,10 +768,8 @@ _ufc_dofinalperm_r(res, __data)
  */
 
 void
-_ufc_output_conversion_r(v1, v2, salt, __data)
-     ufc_long v1, v2;
-     const char *salt;
-     struct crypt_data * __restrict __data;
+_ufc_output_conversion_r (ufc_long v1, ufc_long v2, const char *salt,
+			  struct crypt_data * __restrict __data)
 {
   int i, s, shf;
 
@@ -822,10 +801,8 @@ _ufc_output_conversion_r(v1, v2, salt, __data)
  */
 
 void
-__encrypt_r(__block, __edflag, __data)
-     char *__block;
-     int __edflag;
-     struct crypt_data * __restrict __data;
+__encrypt_r (char *__block, int __edflag,
+	     struct crypt_data * __restrict __data)
 {
   ufc_long l1, l2, r1, r2, res[4];
   int i;
@@ -918,9 +895,7 @@ __encrypt_r(__block, __edflag, __data)
 weak_alias (__encrypt_r, encrypt_r)
 
 void
-encrypt(__block, __edflag)
-     char *__block;
-     int __edflag;
+encrypt (char *__block, int __edflag)
 {
   __encrypt_r(__block, __edflag, &_ufc_foobar);
 }
@@ -932,9 +907,7 @@ encrypt(__block, __edflag)
  */
 
 void
-__setkey_r(__key, __data)
-     const char *__key;
-     struct crypt_data * __restrict __data;
+__setkey_r (const char *__key, struct crypt_data * __restrict __data)
 {
   int i,j;
   unsigned char c;
@@ -952,8 +925,7 @@ __setkey_r(__key, __data)
 weak_alias (__setkey_r, setkey_r)
 
 void
-setkey(__key)
-     const char *__key;
+setkey (const char *__key)
 {
   __setkey_r(__key, &_ufc_foobar);
 }

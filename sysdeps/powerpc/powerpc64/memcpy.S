@@ -17,8 +17,6 @@
    <http://www.gnu.org/licenses/>.  */
 
 #include <sysdep.h>
-#include <bp-sym.h>
-#include <bp-asm.h>
 
 /* __ptr_t [r3] memcpy (__ptr_t dst [r3], __ptr_t src [r4], size_t len [r5]);
    Returns 'dst'.
@@ -35,7 +33,7 @@
    posible when both source and destination are doubleword aligned.
    Each case has a optimized unrolled loop.   */
 
-EALIGN (BP_SYM (memcpy), 5, 0)
+EALIGN (memcpy, 5, 0)
 	CALL_MCOUNT 3
 
     cmpldi cr1,5,31
@@ -214,15 +212,28 @@ EALIGN (BP_SYM (memcpy), 5, 0)
     blt   cr6,5f
     srdi  7,6,16
     bgt	  cr6,3f
+#ifdef __LITTLE_ENDIAN__
+    sth   7,0(3)
+#else
     sth   6,0(3)
+#endif
     b     7f
     .align  4
 3:
+#ifdef __LITTLE_ENDIAN__
+    rotlwi 6,6,24
+    stb   6,0(3)
+    sth   7,1(3)
+#else
     stb   7,0(3)
     sth   6,1(3)
+#endif
     b     7f
     .align  4
 5:
+#ifdef __LITTLE_ENDIAN__
+    rotlwi 6,6,8
+#endif
     stb   6,0(3)
 7:
     cmpldi	cr1,10,16
@@ -330,7 +341,11 @@ EALIGN (BP_SYM (memcpy), 5, 0)
     ld    7,8(5)
     subfic  9,10,64
     beq   2f
+#ifdef __LITTLE_ENDIAN__
+    srd   0,6,10
+#else
     sld   0,6,10
+#endif
     cmpldi  11,1
     mr    6,7
     addi  4,4,-8
@@ -338,15 +353,25 @@ EALIGN (BP_SYM (memcpy), 5, 0)
     b     1f
 2:  addi  5,5,8
     .align  4
+#ifdef __LITTLE_ENDIAN__
+0:  srd   0,6,10
+    sld   8,7,9
+#else
 0:  sld   0,6,10
     srd   8,7,9
+#endif
     cmpldi  11,2
     ld    6,8(5)
     or    0,0,8
     addi  11,11,-2
     std   0,0(4)
+#ifdef __LITTLE_ENDIAN__
+    srd   0,7,10
+1:  sld   8,6,9
+#else
     sld   0,7,10
 1:  srd   8,6,9
+#endif
     or    0,0,8
     beq   8f
     ld    7,16(5)
@@ -364,5 +389,5 @@ EALIGN (BP_SYM (memcpy), 5, 0)
     ld 31,-8(1)
     ld 3,-16(1)
     blr
-END_GEN_TB (BP_SYM (memcpy),TB_TOCLESS)
+END_GEN_TB (memcpy,TB_TOCLESS)
 libc_hidden_builtin_def (memcpy)

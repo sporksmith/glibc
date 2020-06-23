@@ -23,14 +23,12 @@
 #else
 #include <jmpbuf-offsets.h>
 #endif
-#include <bp-sym.h>
-#include <bp-asm.h>
 
 #ifndef __NO_VMX__
 	.section	".toc","aw"
 .LC__dl_hwcap:
 # ifdef SHARED
-#  ifdef IS_IN_rtld
+#  if IS_IN (rtld)
 	/* Inside ld.so we use the local alias to avoid runtime GOT
 	   relocations.  */
 	.tc _rtld_local_ro[TC],_rtld_local_ro
@@ -50,29 +48,29 @@ ENTRY (setjmp)
 	b JUMPTARGET (GLUE(__sigsetjmp,_ent))
 END (setjmp)
 
-#if defined SHARED && !defined IS_IN_rtld && !defined __NO_VMX__
+#if defined SHARED && !IS_IN (rtld) && !defined __NO_VMX__
 /* When called from within libc we need a special version of _setjmp
    that saves r2 since the call won't go via a plt call stub.  See
    bugz #269.  __GI__setjmp is used in csu/libc-start.c when
    HAVE_CLEANUP_JMP_BUF is defined.  */
-ENTRY (BP_SYM (__GI__setjmp))
-	std r2,40(r1)		/* Save the callers TOC in the save area.  */
-	cfi_endproc
-END_2 (BP_SYM (__GI__setjmp))
-/* Fall thru. */
-#endif
-
-ENTRY (BP_SYM (_setjmp))
+ENTRY (__GI__setjmp)
+	std r2,FRAME_TOC_SAVE(r1)		/* Save the callers TOC in the save area.  */
 	CALL_MCOUNT 1
 	li r4,0			/* Set second argument to 0.  */
 	b JUMPTARGET (GLUE(__sigsetjmp,_ent))
-END (BP_SYM (_setjmp))
+END (__GI__setjmp)
+#endif
+
+ENTRY (_setjmp)
+	CALL_MCOUNT 1
+	li r4,0			/* Set second argument to 0.  */
+	b JUMPTARGET (GLUE(__sigsetjmp,_ent))
+END (_setjmp)
 libc_hidden_def (_setjmp)
 
-ENTRY (BP_SYM (__sigsetjmp))
+ENTRY (__sigsetjmp)
 	CALL_MCOUNT 2
 JUMPTARGET(GLUE(__sigsetjmp,_ent)):
-	CHECK_BOUNDS_BOTH_WIDE_LIT (r3, r8, r9, JB_SIZE)
 #ifdef PTR_MANGLE
 	mr   r5, r1
 	PTR_MANGLE (r5, r6)
@@ -81,8 +79,8 @@ JUMPTARGET(GLUE(__sigsetjmp,_ent)):
 	std  r1,(JB_GPR1*8)(3)
 #endif
 	mflr r0
-#if defined SHARED && !defined IS_IN_rtld
-	ld   r5,40(r1)	/* Retrieve the callers TOC.  */
+#if defined SHARED && !IS_IN (rtld)
+	ld   r5,FRAME_TOC_SAVE(r1)	/* Retrieve the callers TOC.  */
 	std  r5,(JB_GPR2*8)(3)
 #else
 	std  r2,(JB_GPR2*8)(3)
@@ -98,7 +96,7 @@ JUMPTARGET(GLUE(__sigsetjmp,_ent)):
 	mfcr r0
 	std  r16,((JB_GPRS+2)*8)(3)
 	stfd fp16,((JB_FPRS+2)*8)(3)
-	std  r0,(JB_CR*8)(3)
+	stw  r0,((JB_CR*8)+4)(3)	/* 32-bit CR.  */
 	std  r17,((JB_GPRS+3)*8)(3)
 	stfd fp17,((JB_FPRS+3)*8)(3)
 	std  r18,((JB_GPRS+4)*8)(3)
@@ -142,50 +140,46 @@ JUMPTARGET(GLUE(__sigsetjmp,_ent)):
 	la	r5,((JB_VRS)*8)(3)
 	andi.	r6,r5,0xf
 	mfspr	r0,VRSAVE
-	stw	r0,((JB_VRSAVE)*8)(3)
+	stw	r0,((JB_VRSAVE)*8)(3)	/* 32-bit VRSAVE.  */
 	addi	r6,r5,16
 	beq+	L(aligned_save_vmx)
+
 	lvsr	v0,0,r5
-	vspltisb v1,-1         /* set v1 to all 1's */
-	vspltisb v2,0          /* set v2 to all 0's */
-	vperm   v3,v2,v1,v0   /* v3 contains shift mask with num all 1 bytes
-				 on left = misalignment  */
+	lvsl	v1,0,r5
+	addi	r6,r5,-16
 
+# define save_misaligned_vmx(savevr,prevvr,shiftvr,tmpvr,savegpr,addgpr) \
+	addi	addgpr,addgpr,32;					 \
+	vperm	tmpvr,prevvr,savevr,shiftvr;				 \
+	stvx	tmpvr,0,savegpr
 
-	/* Special case for v20 we need to preserve what is in save area
-	   below v20 before obliterating it */
-	lvx     v5,0,r5
-	vperm   v20,v20,v20,v0
-	vsel    v5,v5,v20,v3
-	vsel    v20,v20,v2,v3
-	stvx    v5,0,r5
+	/*
+	 * We have to be careful not to corrupt the data below v20 and
+	 * above v31. To keep things simple we just rotate both ends in
+	 * the opposite direction to our main permute so we can use
+	 * the common macro.
+	 */
 
-# define save_2vmx_partial(savevr,prev_savevr,hivr,shiftvr,maskvr,savegpr,addgpr) \
-	addi    addgpr,addgpr,32; \
-	vperm   savevr,savevr,savevr,shiftvr; \
-	vsel    hivr,prev_savevr,savevr,maskvr; \
-	stvx    hivr,0,savegpr;
+	/* load and rotate data below v20 */
+	lvx	v2,0,r5
+	vperm	v2,v2,v2,v1
+	save_misaligned_vmx(v20,v2,v0,v3,r5,r6)
+	save_misaligned_vmx(v21,v20,v0,v3,r6,r5)
+	save_misaligned_vmx(v22,v21,v0,v3,r5,r6)
+	save_misaligned_vmx(v23,v22,v0,v3,r6,r5)
+	save_misaligned_vmx(v24,v23,v0,v3,r5,r6)
+	save_misaligned_vmx(v25,v24,v0,v3,r6,r5)
+	save_misaligned_vmx(v26,v25,v0,v3,r5,r6)
+	save_misaligned_vmx(v27,v26,v0,v3,r6,r5)
+	save_misaligned_vmx(v28,v27,v0,v3,r5,r6)
+	save_misaligned_vmx(v29,v28,v0,v3,r6,r5)
+	save_misaligned_vmx(v30,v29,v0,v3,r5,r6)
+	save_misaligned_vmx(v31,v30,v0,v3,r6,r5)
+	/* load and rotate data above v31 */
+	lvx	v2,0,r6
+	vperm	v2,v2,v2,v1
+	save_misaligned_vmx(v2,v31,v0,v3,r5,r6)
 
-	save_2vmx_partial(v21,v20,v5,v0,v3,r6,r5)
-	save_2vmx_partial(v22,v21,v5,v0,v3,r5,r6)
-	save_2vmx_partial(v23,v22,v5,v0,v3,r6,r5)
-	save_2vmx_partial(v24,v23,v5,v0,v3,r5,r6)
-	save_2vmx_partial(v25,v24,v5,v0,v3,r6,r5)
-	save_2vmx_partial(v26,v25,v5,v0,v3,r5,r6)
-	save_2vmx_partial(v27,v26,v5,v0,v3,r6,r5)
-	save_2vmx_partial(v28,v27,v5,v0,v3,r5,r6)
-	save_2vmx_partial(v29,v28,v5,v0,v3,r6,r5)
-	save_2vmx_partial(v30,v29,v5,v0,v3,r5,r6)
-
-	/* Special case for r31 we need to preserve what is in save area
-	   above v31 before obliterating it */
-	addi    r5,r5,32
-	vperm   v31,v31,v31,v0
-	lvx     v4,0,r5
-	vsel    v5,v30,v31,v3
-	stvx    v5,0,r6
-	vsel    v4,v31,v4,v3
-	stvx    v4,0,r5
 	b	L(no_vmx)
 
 L(aligned_save_vmx):
@@ -215,22 +209,22 @@ L(no_vmx):
 #else
 	li	r6,0
 #endif
-#if defined NOT_IN_libc && defined IS_IN_rtld
+#if IS_IN (rtld)
 	li	r3,0
 	blr
 #elif defined SHARED
-	b	JUMPTARGET (BP_SYM (__sigjmp_save))
+	b	JUMPTARGET (__sigjmp_save)
 #else
 	mflr	r0
-	std	r0,16(r1)
-	stdu	r1,-112(r1)
-	cfi_adjust_cfa_offset(112)
-	cfi_offset(lr,16)
-	bl	JUMPTARGET (BP_SYM (__sigjmp_save))
+	std	r0,FRAME_LR_SAVE(r1)
+	stdu	r1,-FRAME_MIN_SIZE(r1)
+	cfi_adjust_cfa_offset(FRAME_MIN_SIZE)
+	cfi_offset(lr,FRAME_LR_SAVE)
+	bl	JUMPTARGET (__sigjmp_save)
 	nop
-	ld	r0,112+16(r1)
-	addi	r1,r1,112
+	ld	r0,FRAME_MIN_SIZE+FRAME_LR_SAVE(r1)
+	addi	r1,r1,FRAME_MIN_SIZE
 	mtlr	r0
 	blr
 #endif
-END (BP_SYM (__sigsetjmp))
+END (__sigsetjmp)

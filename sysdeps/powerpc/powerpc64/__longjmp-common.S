@@ -24,14 +24,12 @@
 #else
 # include <jmpbuf-offsets.h>
 #endif
-#include <bp-sym.h>
-#include <bp-asm.h>
 
 #ifndef __NO_VMX__
 	.section	".toc","aw"
 .LC__dl_hwcap:
 # ifdef SHARED
-#  ifdef IS_IN_rtld
+#  if IS_IN (rtld)
 	/* Inside ld.so we use the local alias to avoid runtime GOT
 	   relocations.  */
 	.tc _rtld_local_ro[TC],_rtld_local_ro
@@ -45,9 +43,8 @@
 #endif
 
 	.machine	"altivec"
-ENTRY (BP_SYM (__longjmp))
+ENTRY (__longjmp)
 	CALL_MCOUNT 2
-	CHECK_BOUNDS_BOTH_WIDE_LIT (r3, r8, r9, JB_SIZE)
 #ifndef __NO_VMX__
 	ld    r5,.LC__dl_hwcap@toc(r2)
 # ifdef SHARED
@@ -60,7 +57,7 @@ ENTRY (BP_SYM (__longjmp))
 	beq	L(no_vmx)
 	la	r5,((JB_VRS)*8)(3)
 	andi.	r6,r5,0xf
-	lwz	r0,((JB_VRSAVE)*8)(3)
+	lwz	r0,((JB_VRSAVE)*8)(3)	/* 32-bit VRSAVE.  */
 	mtspr	VRSAVE,r0
 	beq+	L(aligned_restore_vmx)
 	addi    r6,r5,16
@@ -132,8 +129,8 @@ L(no_vmx):
 	ld r0,(JB_LR*8)(r3)
 	ld r14,((JB_GPRS+0)*8)(r3)
 	lfd fp14,((JB_FPRS+0)*8)(r3)
-#if defined SHARED && !defined IS_IN_rtld
-	std r2,40(r1)	/* Restore the callers TOC save area.  */
+#if defined SHARED && !IS_IN (rtld)
+	std r2,FRAME_TOC_SAVE(r1)	/* Restore the callers TOC save area.  */
 #endif
 	ld r15,((JB_GPRS+1)*8)(r3)
 	lfd fp15,((JB_FPRS+1)*8)(r3)
@@ -151,12 +148,12 @@ L(no_vmx):
 	PTR_DEMANGLE2 (r0, r25)
 #endif
 	mtlr r0
-/* 	std r2,40(r1)	Restore the TOC save area.  */
+/* 	std r2,FRAME_TOC_SAVE(r1)	Restore the TOC save area.  */
 	ld r21,((JB_GPRS+7)*8)(r3)
 	lfd fp21,((JB_FPRS+7)*8)(r3)
 	ld r22,((JB_GPRS+8)*8)(r3)
 	lfd fp22,((JB_FPRS+8)*8)(r3)
-	ld r0,(JB_CR*8)(r3)
+	lwz r0,((JB_CR*8)+4)(r3)	/* 32-bit CR.  */
 	ld r23,((JB_GPRS+9)*8)(r3)
 	lfd fp23,((JB_FPRS+9)*8)(r3)
 	ld r24,((JB_GPRS+10)*8)(r3)
@@ -178,4 +175,4 @@ L(no_vmx):
 	lfd fp31,((JB_FPRS+17)*8)(r3)
 	mr r3,r4
 	blr
-END (BP_SYM (__longjmp))
+END (__longjmp)

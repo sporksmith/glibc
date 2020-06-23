@@ -23,17 +23,17 @@
 
 /* Rewind DIRP to the beginning of the directory.  */
 void
-rewinddir (dirp)
-     DIR *dirp;
+rewinddir (DIR *dirp)
 {
-#ifndef NOT_IN_libc
+#if IS_IN (libc)
   __libc_lock_lock (dirp->lock);
 #endif
   (void) __lseek (dirp->fd, (off_t) 0, SEEK_SET);
   dirp->filepos = 0;
   dirp->offset = 0;
   dirp->size = 0;
-#ifndef NOT_IN_libc
+  dirp->errcode = 0;
+#if IS_IN (libc)
   __libc_lock_unlock (dirp->lock);
 #endif
 }

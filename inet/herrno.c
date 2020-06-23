@@ -24,7 +24,13 @@
 /* We need to have the error status variable of the resolver
    accessible in the libc.  */
 
-__thread int h_errno;
-extern __thread int __libc_h_errno __attribute__ ((alias ("h_errno")))
+__thread int __h_errno;
+extern __thread int __libc_h_errno __attribute__ ((alias ("__h_errno")))
   attribute_hidden;
 #define h_errno __libc_h_errno
+
+#ifdef SHARED
+/* Provide an alias for use by the old libpthread.so.0 during
+   updates.  */
+asm (".symver __h_errno, h_errno@GLIBC_PRIVATE");
+#endif

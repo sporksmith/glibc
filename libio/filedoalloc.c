@@ -91,8 +91,7 @@ local_isatty (int fd)
  */
 
 int
-_IO_file_doallocate (fp)
-     _IO_FILE *fp;
+_IO_file_doallocate (_IO_FILE *fp)
 {
   _IO_size_t size;
   char *p;
@@ -121,7 +120,7 @@ _IO_file_doallocate (fp)
 	    fp->_flags |= _IO_LINE_BUF;
 	}
 #if _IO_HAVE_ST_BLKSIZE
-      if (st.st_blksize > 0)
+      if (st.st_blksize > 0 && st.st_blksize < _IO_BUFSIZ)
 	size = st.st_blksize;
 #endif
     }

@@ -127,6 +127,9 @@ lib: $(common-objpfx)libc.so
 
 lib: $(common-objpfx)linkobj/libc.so
 
+# Do not filter ld.so out of libc.so link.
+$(common-objpfx)linkobj/libc.so: link-libc-deps = # empty
+
 $(common-objpfx)linkobj/libc.so: $(elfobjdir)/soinit.os \
 				 $(common-objpfx)linkobj/libc_pic.a \
 				 $(elfobjdir)/sofini.os \
@@ -276,7 +279,7 @@ ifneq ($(CXX),no)
 vpath c++-types.data $(+sysdep_dirs)
 
 $(objpfx)c++-types-check.out: c++-types.data scripts/check-c++-types.sh
-	scripts/check-c++-types.sh $< $(CXX) $(filter-out -std=gnu99 -Wstrict-prototypes,$(CFLAGS)) $(CPPFLAGS) > $@
+	scripts/check-c++-types.sh $< $(CXX) $(filter-out -std=gnu99 $(+gccwarn-c),$(CFLAGS)) $(CPPFLAGS) > $@
 endif
 
 $(objpfx)check-local-headers.out: scripts/check-local-headers.sh

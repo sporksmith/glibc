@@ -94,8 +94,7 @@ static const struct toktab {
 
 
 int
-ruserpass(host, aname, apass)
-	const char *host, **aname, **apass;
+ruserpass (const char *host, const char **aname, const char **apass)
 {
 	char *hdir, *buf, *tmp;
 	char myname[1024], *mydomain;
@@ -289,7 +288,7 @@ bad:
 libc_hidden_def (ruserpass)
 
 static int
-token()
+token (void)
 {
 	char *cp;
 	int c;

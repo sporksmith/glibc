@@ -169,34 +169,10 @@ local_strdup (const char *s)
 
 
 static bool
-is_trusted_path (const char *path, size_t len)
-{
-  const char *trun = system_dirs;
-
-  for (size_t idx = 0; idx < nsystem_dirs_len; ++idx)
-    {
-      if (len == system_dirs_len[idx] && memcmp (trun, path, len) == 0)
-	/* Found it.  */
-	return true;
-
-      trun += system_dirs_len[idx] + 1;
-    }
-
-  return false;
-}
-
-
-static bool
 is_trusted_path_normalize (const char *path, size_t len)
 {
   if (len == 0)
     return false;
-
-  if (*path == ':')
-    {
-      ++path;
-      --len;
-    }
 
   char *npath = (char *) alloca (len + 2);
   char *wnp = npath;
@@ -248,132 +224,172 @@ is_trusted_path_normalize (const char *path, size_t len)
   return false;
 }
 
+/* Given a substring starting at INPUT, just after the DST '$' start
+   token, determine if INPUT contains DST token REF, following the
+   ELF gABI rules for DSTs:
 
+   * Longest possible sequence using the rules (greedy).
+
+   * Must start with a $ (enforced by caller).
+
+   * Must follow $ with one underscore or ASCII [A-Za-z] (caller
+     follows these rules for REF) or '{' (start curly quoted name).
+
+   * Must follow first two characters with zero or more [A-Za-z0-9_]
+     (enforced by caller) or '}' (end curly quoted name).
+
+   If the sequence is a DST matching REF then the length of the DST
+   (excluding the $ sign but including curly braces, if any) is
+   returned, otherwise 0.  */
 static size_t
-is_dst (const char *start, const char *name, const char *str,
-	int is_path, int secure)
+is_dst (const char *input, const char *ref)
 {
-  size_t len;
   bool is_curly = false;
 
-  if (name[0] == '{')
+  /* Is a ${...} input sequence?  */
+  if (input[0] == '{')
     {
       is_curly = true;
-      ++name;
+      ++input;
     }
 
-  len = 0;
-  while (name[len] == str[len] && name[len] != '\0')
-    ++len;
+  /* Check for matching name, following closing curly brace (if
+     required), or trailing characters which are part of an
+     identifier.  */
+  size_t rlen = strlen (ref);
+  if (strncmp (input, ref, rlen) != 0
+      || (is_curly && input[rlen] != '}')
+      || ((input[rlen] >= 'A' && input[rlen] <= 'Z')
+	  || (input[rlen] >= 'a' && input[rlen] <= 'z')
+	  || (input[rlen] >= '0' && input[rlen] <= '9')
+	  || (input[rlen] == '_')))
+    return 0;
 
   if (is_curly)
-    {
-      if (name[len] != '}')
-	return 0;
-
-      /* Point again at the beginning of the name.  */
-      --name;
-      /* Skip over closing curly brace and adjust for the --name.  */
-      len += 2;
-    }
-  else if (name[len] != '\0' && name[len] != '/'
-	   && (!is_path || name[len] != ':'))
-    return 0;
-
-  if (__builtin_expect (secure, 0)
-      && ((name[len] != '\0' && name[len] != '/'
-	   && (!is_path || name[len] != ':'))
-	  || (name != start + 1 && (!is_path || name[-2] != ':'))))
-    return 0;
-
-  return len;
+    /* Count the two curly braces.  */
+    return rlen + 2;
+  else
+    return rlen;
 }
 
-
+/* INPUT is the start of a DST sequence at the first '$' occurrence.
+   If there is a DST we call into _dl_dst_count to count the number of
+   DSTs.  We count all known DSTs regardless of __libc_enable_secure;
+   the caller is responsible for enforcing the security of the
+   substitution rules (usually _dl_dst_substitute).  */
 size_t
-_dl_dst_count (const char *name, int is_path)
+_dl_dst_count (const char *input)
 {
-  const char *const start = name;
   size_t cnt = 0;
+
+  input = strchr (input, '$');
+
+  /* Most likely there is no DST.  */
+  if (__glibc_likely (input == NULL))
+    return 0;
 
   do
     {
       size_t len;
 
-      /* $ORIGIN is not expanded for SUID/GUID programs (except if it
-	 is $ORIGIN alone) and it must always appear first in path.  */
-      ++name;
-      if ((len = is_dst (start, name, "ORIGIN", is_path,
-			 INTUSE(__libc_enable_secure))) != 0
-	  || (len = is_dst (start, name, "PLATFORM", is_path, 0)) != 0
-	  || (len = is_dst (start, name, "LIB", is_path, 0)) != 0)
+      ++input;
+      /* All DSTs must follow ELF gABI rules, see is_dst ().  */
+      if ((len = is_dst (input, "ORIGIN")) != 0
+	  || (len = is_dst (input, "PLATFORM")) != 0
+	  || (len = is_dst (input, "LIB")) != 0)
 	++cnt;
 
-      name = strchr (name + len, '$');
+      /* There may be more than one DST in the input.  */
+      input = strchr (input + len, '$');
     }
-  while (name != NULL);
+  while (input != NULL);
 
   return cnt;
 }
 
-
+/* Process INPUT for DSTs and store in RESULT using the information
+   from link map L to resolve the DSTs. This function only handles one
+   path at a time and does not handle colon-separated path lists (see
+   fillin_rpath ()).  Lastly the size of result in bytes should be at
+   least equal to the value returned by DL_DST_REQUIRED.  Note that it
+   is possible for a DT_NEEDED, DT_AUXILIARY, and DT_FILTER entries to
+   have colons, but we treat those as literal colons here, not as path
+   list delimeters.  */
 char *
-_dl_dst_substitute (struct link_map *l, const char *name, char *result,
-		    int is_path)
+_dl_dst_substitute (struct link_map *l, const char *input, char *result)
 {
-  const char *const start = name;
-
-  /* Now fill the result path.  While copying over the string we keep
-     track of the start of the last path element.  When we come accross
-     a DST we copy over the value or (if the value is not available)
-     leave the entire path element out.  */
+  /* Copy character-by-character from input into the working pointer
+     looking for any DSTs.  We track the start of input and if we are
+     going to check for trusted paths, all of which are part of $ORIGIN
+     handling in SUID/SGID cases (see below).  In some cases, like when
+     a DST cannot be replaced, we may set result to an empty string and
+     return.  */
   char *wp = result;
-  char *last_elem = result;
+  const char *start = input;
   bool check_for_trusted = false;
 
   do
     {
-      if (__builtin_expect (*name == '$', 0))
+      if (__glibc_unlikely (*input == '$'))
 	{
 	  const char *repl = NULL;
 	  size_t len;
 
-	  ++name;
-	  if ((len = is_dst (start, name, "ORIGIN", is_path,
-			     INTUSE(__libc_enable_secure))) != 0)
+	  ++input;
+	  if ((len = is_dst (input, "ORIGIN")) != 0)
 	    {
-#ifndef SHARED
-	      if (l == NULL)
-		repl = _dl_get_origin ();
+	      /* For SUID/GUID programs we normally ignore the path with
+		 $ORIGIN in DT_RUNPATH, or DT_RPATH.  However, there is
+		 one exception to this rule, and it is:
+
+		   * $ORIGIN appears as the first path element, and is
+		     the only string in the path or is immediately
+		     followed by a path separator and the rest of the
+		     path.
+
+		   * The path is rooted in a trusted directory.
+
+		 This exception allows such programs to reference
+		 shared libraries in subdirectories of trusted
+		 directories.  The use case is one of general
+		 organization and deployment flexibility.
+		 Trusted directories are usually such paths as "/lib64"
+		 or "/usr/lib64", and the usual RPATHs take the form of
+		 [$ORIGIN/../$LIB/somedir].  */
+	      if (__glibc_unlikely (__libc_enable_secure)
+		  && !(input == start + 1
+		       && (input[len] == '\0' || input[len] == '/')))
+		repl = (const char *) -1;
 	      else
+		{
+#ifndef SHARED
+		  if (l == NULL)
+		    repl = _dl_get_origin ();
+		  else
 #endif
-		repl = l->l_origin;
+		    repl = l->l_origin;
+		}
 
 	      check_for_trusted = (INTUSE(__libc_enable_secure)
 				   && l->l_type == lt_executable);
 	    }
-	  else if ((len = is_dst (start, name, "PLATFORM", is_path, 0)) != 0)
+	  else if ((len = is_dst (input, "PLATFORM")) != 0)
 	    repl = GLRO(dl_platform);
-	  else if ((len = is_dst (start, name, "LIB", is_path, 0)) != 0)
+	  else if ((len = is_dst (input, "LIB")) != 0)
 	    repl = DL_DST_LIB;
 
 	  if (repl != NULL && repl != (const char *) -1)
 	    {
 	      wp = __stpcpy (wp, repl);
-	      name += len;
+	      input += len;
 	    }
-	  else if (len > 1)
+	  else if (len != 0)
 	    {
-	      /* We cannot use this path element, the value of the
-		 replacement is unknown.  */
-	      wp = last_elem;
-	      name += len;
-	      while (*name != '\0' && (!is_path || *name != ':'))
-		++name;
-	      /* Also skip following colon if this is the first rpath
-		 element, but keep an empty element at the end.  */
-	      if (wp == result && is_path && *name == ':' && name[1] != '\0')
-		++name;
+	      /* We found a valid DST that we know about, but we could
+	         not find a replacement value for it, therefore we
+		 cannot use this path and discard it.  */
+	      *result = '\0';
+	      return result;
 	    }
 	  else
 	    /* No DST we recognize.  */
@@ -381,29 +397,26 @@ _dl_dst_substitute (struct link_map *l, const char *name, char *result,
 	}
       else
 	{
-	  *wp++ = *name++;
-	  if (is_path && *name == ':')
-	    {
-	      /* In SUID/SGID programs, after $ORIGIN expansion the
-		 normalized path must be rooted in one of the trusted
-		 directories.  */
-	      if (__builtin_expect (check_for_trusted, false)
-		  && !is_trusted_path_normalize (last_elem, wp - last_elem))
-		wp = last_elem;
-	      else
-		last_elem = wp;
-
-	      check_for_trusted = false;
-	    }
+	  *wp++ = *input++;
 	}
     }
-  while (*name != '\0');
+  while (*input != '\0');
 
   /* In SUID/SGID programs, after $ORIGIN expansion the normalized
-     path must be rooted in one of the trusted directories.  */
-  if (__builtin_expect (check_for_trusted, false)
-      && !is_trusted_path_normalize (last_elem, wp - last_elem))
-    wp = last_elem;
+     path must be rooted in one of the trusted directories.  The $LIB
+     and $PLATFORM DST cannot in any way be manipulated by the caller
+     because they are fixed values that are set by the dynamic loader
+     and therefore any paths using just $LIB or $PLATFORM need not be
+     checked for trust, the authors of the binaries themselves are
+     trusted to have designed this correctly.  Only $ORIGIN is tested in
+     this way because it may be manipulated in some ways with hard
+     links.  */
+  if (__glibc_unlikely (check_for_trusted)
+      && !is_trusted_path_normalize (result, wp - result))
+    {
+      *result = '\0';
+      return result;
+    }
 
   *wp = '\0';
 
@@ -411,13 +424,13 @@ _dl_dst_substitute (struct link_map *l, const char *name, char *result,
 }
 
 
-/* Return copy of argument with all recognized dynamic string tokens
-   ($ORIGIN and $PLATFORM for now) replaced.  On some platforms it
-   might not be possible to determine the path from which the object
-   belonging to the map is loaded.  In this case the path element
-   containing $ORIGIN is left out.  */
+/* Return a malloc allocated copy of INPUT with all recognized DSTs
+   replaced. On some platforms it might not be possible to determine the
+   path from which the object belonging to the map is loaded.  In this
+   case the path containing the DST is left out.  On error NULL
+   is returned.  */
 static char *
-expand_dynamic_string_token (struct link_map *l, const char *s, int is_path)
+expand_dynamic_string_token (struct link_map *l, const char *input)
 {
   /* We make two runs over the string.  First we determine how large the
      resulting string is and then we copy it over.  Since this is no
@@ -427,22 +440,22 @@ expand_dynamic_string_token (struct link_map *l, const char *s, int is_path)
   size_t total;
   char *result;
 
-  /* Determine the number of DST elements.  */
-  cnt = DL_DST_COUNT (s, is_path);
+  /* Determine the number of DSTs.  */
+  cnt = _dl_dst_count (input);
 
   /* If we do not have to replace anything simply copy the string.  */
   if (__builtin_expect (cnt, 0) == 0)
-    return local_strdup (s);
+    return local_strdup (input);
 
   /* Determine the length of the substituted string.  */
-  total = DL_DST_REQUIRED (l, s, strlen (s), cnt);
+  total = DL_DST_REQUIRED (l, input, strlen (input), cnt);
 
   /* Allocate the necessary memory.  */
   result = (char *) malloc (total + 1);
   if (result == NULL)
     return NULL;
 
-  return _dl_dst_substitute (l, s, result, is_path);
+  return _dl_dst_substitute (l, input, result);
 }
 
 
@@ -487,7 +500,7 @@ static size_t max_dirnamelen;
 
 static struct r_search_path_elem **
 fillin_rpath (char *rpath, struct r_search_path_elem **result, const char *sep,
-	      int check_trusted, const char *what, const char *where)
+	      const char *what, const char *where, struct link_map *l)
 {
   char *cp;
   size_t nelems = 0;
@@ -495,27 +508,35 @@ fillin_rpath (char *rpath, struct r_search_path_elem **result, const char *sep,
   while ((cp = __strsep (&rpath, sep)) != NULL)
     {
       struct r_search_path_elem *dirp;
-      size_t len = strlen (cp);
+      char *to_free = NULL;
+      size_t len = 0;
 
-      /* `strsep' can pass an empty string.  This has to be
-	 interpreted as `use the current directory'. */
-      if (len == 0)
+      /* `strsep' can pass an empty string.  */
+      if (*cp != '\0')
 	{
-	  static const char curwd[] = "./";
-	  cp = (char *) curwd;
+	  to_free = cp = expand_dynamic_string_token (l, cp);
+	  /* expand_dynamic_string_token can return NULL in case of empty
+	     path or memory allocation failure.  */
+	  if (cp == NULL)
+	    continue;
+
+	  /* Compute the length after dynamic string token expansion and
+	     ignore empty paths.  */
+	  len = strlen (cp);
+	  if (len == 0)
+	    {
+	      free (to_free);
+	      continue;
+	    }
+
+	  /* Remove trailing slashes (except for "/").  */
+	  while (len > 1 && cp[len - 1] == '/')
+	    --len;
+
+	  /* Now add one if there is none so far.  */
+	  if (len > 0 && cp[len - 1] != '/')
+	    cp[len++] = '/';
 	}
-
-      /* Remove trailing slashes (except for "/").  */
-      while (len > 1 && cp[len - 1] == '/')
-	--len;
-
-      /* Now add one if there is none so far.  */
-      if (len > 0 && cp[len - 1] != '/')
-	cp[len++] = '/';
-
-      /* Make sure we don't use untrusted directories if we run SUID.  */
-      if (__builtin_expect (check_trusted, 0) && !is_trusted_path (cp, len))
-	continue;
 
       /* See if this directory is already known.  */
       for (dirp = GL(dl_all_dirs); dirp != NULL; dirp = dirp->next)
@@ -576,6 +597,7 @@ fillin_rpath (char *rpath, struct r_search_path_elem **result, const char *sep,
 	  /* Put it in the result array.  */
 	  result[nelems++] = dirp;
 	}
+      free (to_free);
     }
 
   /* Terminate the array.  */
@@ -592,7 +614,6 @@ decompose_rpath (struct r_search_path_struct *sps,
 {
   /* Make a copy we can work with.  */
   const char *where = l->l_name;
-  char *copy;
   char *cp;
   struct r_search_path_elem **result;
   size_t nelems;
@@ -631,21 +652,19 @@ decompose_rpath (struct r_search_path_struct *sps,
       while (*inhp != '\0');
     }
 
-  /* Make a writable copy.  At the same time expand possible dynamic
-     string tokens.  */
-  copy = expand_dynamic_string_token (l, rpath, 1);
+  /* Ignore empty rpaths.  */
+  if (*rpath == '\0')
+    {
+      sps->dirs = (struct r_search_path_elem **) -1;
+      return false;
+    }
+
+  /* Make a writable copy.  */
+  char *copy = local_strdup (rpath);
   if (copy == NULL)
     {
       errstring = N_("cannot create RUNPATH/RPATH copy");
       goto signal_error;
-    }
-
-  /* Ignore empty rpaths.  */
-  if (*copy == 0)
-    {
-      free (copy);
-      sps->dirs = (struct r_search_path_elem **) -1;
-      return false;
     }
 
   /* Count the number of necessary elements in the result array.  */
@@ -666,11 +685,19 @@ decompose_rpath (struct r_search_path_struct *sps,
       _dl_signal_error (ENOMEM, NULL, NULL, errstring);
     }
 
-  fillin_rpath (copy, result, ":", 0, what, where);
+  fillin_rpath (copy, result, ":", what, where, l);
 
   /* Free the copied RPATH string.  `fillin_rpath' make own copies if
      necessary.  */
   free (copy);
+
+  /* There is no path after expansion.  */
+  if (result[0] == NULL)
+    {
+      free (result);
+      sps->dirs = (struct r_search_path_elem **) -1;
+      return false;
+    }
 
   sps->dirs = result;
   /* The caller will change this value if we haven't used a real malloc.  */
@@ -714,9 +741,7 @@ _dl_init_paths (const char *llp)
   const char *strp;
   struct r_search_path_elem *pelem, **aelem;
   size_t round_size;
-#ifdef SHARED
-  struct link_map *l;
-#endif
+  struct link_map __attribute__ ((unused)) *l = NULL;
   /* Initialize to please the compiler.  */
   const char *errstring = NULL;
 
@@ -797,6 +822,9 @@ _dl_init_paths (const char *llp)
 			   (const void *) (D_PTR (l, l_info[DT_STRTAB])
 					   + l->l_info[DT_RUNPATH]->d_un.d_val),
 			   l, "RUNPATH");
+	  /* During rtld init the memory is allocated by the stub malloc,
+	     prevent any attempt to free it by the normal malloc.  */
+	  l->l_runpath_dirs.malloced = 0;
 
 	  /* The RPATH is ignored.  */
 	  l->l_rpath_dirs.dirs = (void *) -1;
@@ -813,6 +841,9 @@ _dl_init_paths (const char *llp)
 			       (const void *) (D_PTR (l, l_info[DT_STRTAB])
 					       + l->l_info[DT_RPATH]->d_un.d_val),
 			       l, "RPATH");
+	      /* During rtld init the memory is allocated by the stub
+		 malloc, prevent any attempt to free it by the normal
+		 malloc.  */
 	      l->l_rpath_dirs.malloced = 0;
 	    }
 	  else
@@ -823,37 +854,14 @@ _dl_init_paths (const char *llp)
 
   if (llp != NULL && *llp != '\0')
     {
-      size_t nllp;
-      const char *cp = llp;
-      char *llp_tmp;
-
-#ifdef SHARED
-      /* Expand DSTs.  */
-      size_t cnt = DL_DST_COUNT (llp, 1);
-      if (__builtin_expect (cnt == 0, 1))
-	llp_tmp = strdupa (llp);
-      else
-	{
-	  /* Determine the length of the substituted string.  */
-	  size_t total = DL_DST_REQUIRED (l, llp, strlen (llp), cnt);
-
-	  /* Allocate the necessary memory.  */
-	  llp_tmp = (char *) alloca (total + 1);
-	  llp_tmp = _dl_dst_substitute (l, llp, llp_tmp, 1);
-	}
-#else
-      llp_tmp = strdupa (llp);
-#endif
+      char *llp_tmp = strdupa (llp);
 
       /* Decompose the LD_LIBRARY_PATH contents.  First determine how many
 	 elements it has.  */
-      nllp = 1;
-      while (*cp)
-	{
-	  if (*cp == ':' || *cp == ';')
-	    ++nllp;
-	  ++cp;
-	}
+      size_t nllp = 1;
+      for (const char *cp = llp_tmp; *cp != '\0'; ++cp)
+	if (*cp == ':' || *cp == ';')
+	  ++nllp;
 
       env_path_list.dirs = (struct r_search_path_elem **)
 	malloc ((nllp + 1) * sizeof (struct r_search_path_elem *));
@@ -864,8 +872,7 @@ _dl_init_paths (const char *llp)
 	}
 
       (void) fillin_rpath (llp_tmp, env_path_list.dirs, ":;",
-			   INTUSE(__libc_enable_secure), "LD_LIBRARY_PATH",
-			   NULL);
+			   "LD_LIBRARY_PATH", NULL, l);
 
       if (env_path_list.dirs[0] == NULL)
 	{
@@ -911,9 +918,10 @@ lose (int code, int fd, const char *name, char *realname, struct link_map *l,
 static
 #endif
 struct link_map *
-_dl_map_object_from_fd (const char *name, int fd, struct filebuf *fbp,
-			char *realname, struct link_map *loader, int l_type,
-			int mode, void **stack_endp, Lmid_t nsid)
+_dl_map_object_from_fd (const char *name, const char *origname, int fd,
+			struct filebuf *fbp, char *realname,
+			struct link_map *loader, int l_type, int mode,
+			void **stack_endp, Lmid_t nsid)
 {
   struct link_map *l = NULL;
   const ElfW(Ehdr) *header;
@@ -1129,6 +1137,16 @@ _dl_map_object_from_fd (const char *name, int fd, struct filebuf *fbp,
 	    {
 	      errstring
 		= N_("ELF load command address/offset not properly aligned");
+	      goto call_lose;
+	    }
+	  if (__builtin_expect ((ph->p_offset + ph->p_filesz > st.st_size), 0))
+	    {
+	      /* If the segment requires zeroing of part of its last
+		 page, we'll crash when accessing the unmapped page.
+		 There's still a possibility of a race, if the shared
+		 object is truncated between the fxstat above and the
+		 memset below.  */
+	      errstring = N_("ELF load command past end of file");
 	      goto call_lose;
 	    }
 
@@ -1574,6 +1592,17 @@ cannot enable executable stack as shared object requires");
   l->l_dev = st.st_dev;
   l->l_ino = st.st_ino;
 
+#ifdef SHARED
+  /* When auditing is used the recorded names might not include the
+     name by which the DSO is actually known.  Add that as well.  */
+  if (__glibc_unlikely (origname != NULL))
+    add_name_to_object (l, origname);
+#else
+  /* Audit modules only exist when linking is dynamic so ORIGNAME
+     cannot be non-NULL.  */
+  assert (origname == NULL);
+#endif
+
   /* When we profile the SONAME might be needed for something else but
      loading.  Add it right away.  */
   if (__builtin_expect (GLRO(dl_profile) != NULL, 0)
@@ -1657,7 +1686,7 @@ print_search_path (struct r_search_path_elem **list,
    user might want to know about this.  */
 static int
 open_verify (const char *name, struct filebuf *fbp, struct link_map *loader,
-	     int whatcode, bool *found_other_class, bool free_name)
+	     int whatcode, int mode, bool *found_other_class, bool free_name)
 {
   /* This is the expected ELF header.  */
 #define ELF32_CLASS ELFCLASS32
@@ -1721,6 +1750,7 @@ open_verify (const char *name, struct filebuf *fbp, struct link_map *loader,
       ElfW(Ehdr) *ehdr;
       ElfW(Phdr) *phdr, *ph;
       ElfW(Word) *abi_note;
+      ElfW(Word) *abi_note_malloced = NULL;
       unsigned int osversion;
       size_t maplength;
 
@@ -1833,6 +1863,17 @@ open_verify (const char *name, struct filebuf *fbp, struct link_map *loader,
 	  errstring = N_("only ET_DYN and ET_EXEC can be loaded");
 	  goto call_lose;
 	}
+      else if (__glibc_unlikely (ehdr->e_type == ET_EXEC
+				 && (mode & __RTLD_OPENEXEC) == 0))
+	{
+	  /* BZ #16634. It is an error to dlopen ET_EXEC (unless
+	     __RTLD_OPENEXEC is explicitly set).  We return error here
+	     so that code in _dl_map_object_from_fd does not try to set
+	     l_tls_modid for this module.  */
+
+	  errstring = N_("cannot dynamically load executable");
+	  goto call_lose;
+	}
       else if (__builtin_expect (ehdr->e_phentsize, sizeof (ElfW(Phdr)))
 	       != sizeof (ElfW(Phdr)))
 	{
@@ -1866,10 +1907,25 @@ open_verify (const char *name, struct filebuf *fbp, struct link_map *loader,
 	      abi_note = (void *) (fbp->buf + ph->p_offset);
 	    else
 	      {
-		abi_note = alloca (size);
+		/* Note: __libc_use_alloca is not usable here, because
+		   thread info may not have been set up yet.  */
+		if (size < __MAX_ALLOCA_CUTOFF)
+		  abi_note = alloca (size);
+		else
+		  {
+		    /* There could be multiple PT_NOTEs.  */
+		    abi_note_malloced = realloc (abi_note_malloced, size);
+		    if (abi_note_malloced == NULL)
+		      goto read_error;
+
+		    abi_note = abi_note_malloced;
+		  }
 		__lseek (fd, ph->p_offset, SEEK_SET);
 		if (__libc_read (fd, (void *) abi_note, size) != size)
-		  goto read_error;
+		  {
+		    free (abi_note_malloced);
+		    goto read_error;
+		  }
 	      }
 
 	    while (memcmp (abi_note, &expected_note, sizeof (expected_note)))
@@ -1905,6 +1961,7 @@ open_verify (const char *name, struct filebuf *fbp, struct link_map *loader,
 
 	    break;
 	  }
+      free (abi_note_malloced);
     }
 
   return fd;
@@ -1918,7 +1975,7 @@ open_verify (const char *name, struct filebuf *fbp, struct link_map *loader,
    if MAY_FREE_DIRS is true.  */
 
 static int
-open_path (const char *name, size_t namelen, int secure,
+open_path (const char *name, size_t namelen, int mode,
 	   struct r_search_path_struct *sps, char **realname,
 	   struct filebuf *fbp, struct link_map *loader, int whatcode,
 	   bool *found_other_class)
@@ -1970,8 +2027,8 @@ open_path (const char *name, size_t namelen, int secure,
 	  if (__builtin_expect (GLRO(dl_debug_mask) & DL_DEBUG_LIBS, 0))
 	    _dl_debug_printf ("  trying file=%s\n", buf);
 
-	  fd = open_verify (buf, fbp, loader, whatcode, found_other_class,
-			    false);
+	  fd = open_verify (buf, fbp, loader, whatcode, mode,
+			    found_other_class, false);
 	  if (this_dir->status[cnt] == unknown)
 	    {
 	      if (fd != -1)
@@ -2000,7 +2057,7 @@ open_path (const char *name, size_t namelen, int secure,
 	  /* Remember whether we found any existing directory.  */
 	  here_any |= this_dir->status[cnt] != nonexisting;
 
-	  if (fd != -1 && __builtin_expect (secure, 0)
+	  if (fd != -1 && __builtin_expect (mode & __RTLD_SECURE, 0)
 	      && INTUSE(__libc_enable_secure))
 	    {
 	      /* This is an extra security effort to make sure nobody can
@@ -2056,9 +2113,9 @@ open_path (const char *name, size_t namelen, int secure,
       if (sps->malloced)
 	free (sps->dirs);
 
-      /* rtld_search_dirs is attribute_relro, therefore avoid writing
-	 into it.  */
-      if (sps != &rtld_search_dirs)
+      /* rtld_search_dirs and env_path_list are attribute_relro, therefore
+         avoid writing into it.  */
+      if (sps != &rtld_search_dirs && sps != &env_path_list)
 	sps->dirs = (void *) -1;
     }
 
@@ -2073,6 +2130,7 @@ _dl_map_object (struct link_map *loader, const char *name,
 		int type, int trace_mode, int mode, Lmid_t nsid)
 {
   int fd;
+  const char *origname = NULL;
   char *realname;
   char *name_copy;
   struct link_map *l;
@@ -2101,10 +2159,14 @@ _dl_map_object (struct link_map *loader, const char *name,
 	  soname = ((const char *) D_PTR (l, l_info[DT_STRTAB])
 		    + l->l_info[DT_SONAME]->d_un.d_val);
 	  if (strcmp (name, soname) != 0)
-	    continue;
+#ifdef __arm__
+	    if (strcmp (name, "ld-linux.so.3")
+		|| strcmp (soname, "ld-linux-armhf.so.3"))
+#endif
+	      continue;
 
 	  /* We have a match on a new name -- cache it.  */
-	  add_name_to_object (l, soname);
+	  add_name_to_object (l, name);
 	  l->l_soname_added = 1;
 	}
 
@@ -2132,6 +2194,7 @@ _dl_map_object (struct link_map *loader, const char *name,
 	{
 	  if (afct->objsearch != NULL)
 	    {
+	      const char *before = name;
 	      name = afct->objsearch (name, &loader->l_audit[cnt].cookie,
 				      LA_SER_ORIG);
 	      if (name == NULL)
@@ -2139,6 +2202,15 @@ _dl_map_object (struct link_map *loader, const char *name,
 		  /* Do not try anything further.  */
 		  fd = -1;
 		  goto no_file;
+		}
+	      if (before != name && strcmp (before, name) != 0)
+		{
+		  if (__glibc_unlikely (GLRO(dl_debug_mask) & DL_DEBUG_FILES))
+		    _dl_debug_printf ("audit changed filename %s -> %s\n",
+				      before, name);
+
+		  if (origname == NULL)
+		    origname = before;
 		}
 	    }
 
@@ -2175,7 +2247,7 @@ _dl_map_object (struct link_map *loader, const char *name,
 	  for (l = loader; l; l = l->l_loader)
 	    if (cache_rpath (l, &l->l_rpath_dirs, DT_RPATH, "RPATH"))
 	      {
-		fd = open_path (name, namelen, mode & __RTLD_SECURE,
+		fd = open_path (name, namelen, mode,
 				&l->l_rpath_dirs,
 				&realname, &fb, loader, LA_SER_RUNPATH,
 				&found_other_class);
@@ -2191,7 +2263,7 @@ _dl_map_object (struct link_map *loader, const char *name,
 	      && main_map != NULL && main_map->l_type != lt_loaded
 	      && cache_rpath (main_map, &main_map->l_rpath_dirs, DT_RPATH,
 			      "RPATH"))
-	    fd = open_path (name, namelen, mode & __RTLD_SECURE,
+	    fd = open_path (name, namelen, mode,
 			    &main_map->l_rpath_dirs,
 			    &realname, &fb, loader ?: main_map, LA_SER_RUNPATH,
 			    &found_other_class);
@@ -2199,7 +2271,7 @@ _dl_map_object (struct link_map *loader, const char *name,
 
       /* Try the LD_LIBRARY_PATH environment variable.  */
       if (fd == -1 && env_path_list.dirs != (void *) -1)
-	fd = open_path (name, namelen, mode & __RTLD_SECURE, &env_path_list,
+	fd = open_path (name, namelen, mode, &env_path_list,
 			&realname, &fb,
 			loader ?: GL(dl_ns)[LM_ID_BASE]._ns_loaded,
 			LA_SER_LIBPATH, &found_other_class);
@@ -2208,7 +2280,7 @@ _dl_map_object (struct link_map *loader, const char *name,
       if (fd == -1 && loader != NULL
 	  && cache_rpath (loader, &loader->l_runpath_dirs,
 			  DT_RUNPATH, "RUNPATH"))
-	fd = open_path (name, namelen, mode & __RTLD_SECURE,
+	fd = open_path (name, namelen, mode,
 			&loader->l_runpath_dirs, &realname, &fb, loader,
 			LA_SER_RUNPATH, &found_other_class);
 
@@ -2220,7 +2292,7 @@ _dl_map_object (struct link_map *loader, const char *name,
 	{
 	  /* Check the list of libraries in the file /etc/ld.so.cache,
 	     for compatibility with Linux's ldconfig program.  */
-	  const char *cached = _dl_load_cache_lookup (name);
+	  char *cached = _dl_load_cache_lookup (name);
 
 	  if (cached != NULL)
 	    {
@@ -2250,6 +2322,7 @@ _dl_map_object (struct link_map *loader, const char *name,
 		      if (memcmp (cached, dirp, system_dirs_len[cnt]) == 0)
 			{
 			  /* The prefix matches.  Don't use the entry.  */
+			  free (cached);
 			  cached = NULL;
 			  break;
 			}
@@ -2264,16 +2337,12 @@ _dl_map_object (struct link_map *loader, const char *name,
 		{
 		  fd = open_verify (cached,
 				    &fb, loader ?: GL(dl_ns)[nsid]._ns_loaded,
-				    LA_SER_CONFIG, &found_other_class, false);
+				    LA_SER_CONFIG, mode, &found_other_class,
+				    false);
 		  if (__builtin_expect (fd != -1, 1))
-		    {
-		      realname = local_strdup (cached);
-		      if (realname == NULL)
-			{
-			  __close (fd);
-			  fd = -1;
-			}
-		    }
+		    realname = cached;
+		  else
+		    free (cached);
 		}
 	    }
 	}
@@ -2284,7 +2353,7 @@ _dl_map_object (struct link_map *loader, const char *name,
 	  && ((l = loader ?: GL(dl_ns)[nsid]._ns_loaded) == NULL
 	      || __builtin_expect (!(l->l_flags_1 & DF_1_NODEFLIB), 1))
 	  && rtld_search_dirs.dirs != (void *) -1)
-	fd = open_path (name, namelen, mode & __RTLD_SECURE, &rtld_search_dirs,
+	fd = open_path (name, namelen, mode, &rtld_search_dirs,
 			&realname, &fb, l, LA_SER_DEFAULT, &found_other_class);
 
       /* Add another newline when we are tracing the library loading.  */
@@ -2295,14 +2364,14 @@ _dl_map_object (struct link_map *loader, const char *name,
     {
       /* The path may contain dynamic string tokens.  */
       realname = (loader
-		  ? expand_dynamic_string_token (loader, name, 0)
+		  ? expand_dynamic_string_token (loader, name)
 		  : local_strdup (name));
       if (realname == NULL)
 	fd = -1;
       else
 	{
 	  fd = open_verify (realname, &fb,
-			    loader ?: GL(dl_ns)[nsid]._ns_loaded, 0,
+			    loader ?: GL(dl_ns)[nsid]._ns_loaded, 0, mode,
 			    &found_other_class, true);
 	  if (__builtin_expect (fd, 0) == -1)
 	    free (realname);
@@ -2363,8 +2432,8 @@ _dl_map_object (struct link_map *loader, const char *name,
     }
 
   void *stack_end = __libc_stack_end;
-  return _dl_map_object_from_fd (name, fd, &fb, realname, loader, type, mode,
-				 &stack_end, nsid);
+  return _dl_map_object_from_fd (name, origname, fd, &fb, realname, loader,
+				 type, mode, &stack_end, nsid);
 }
 
 

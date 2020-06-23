@@ -89,6 +89,7 @@ char *alloca ();
 # include "../locale/localeinfo.h"
 # include <not-cancel.h>
 # include <bits/libc-lock.h>
+# define PRI_MACROS_BROKEN 0
 #endif
 
 /* Provide fallback values for macros that ought to be defined in <inttypes.h>.
@@ -486,8 +487,7 @@ int _nl_msg_cat_cntr;
 
 /* Expand a system dependent string segment.  Return NULL if unsupported.  */
 static const char *
-get_sysdep_segment_value (name)
-     const char *name;
+get_sysdep_segment_value (const char *name)
 {
   /* Test for an ISO C 99 section 7.8.1 format string directive.
      Syntax:
@@ -756,9 +756,8 @@ get_sysdep_segment_value (name)
    message catalog do nothing.  */
 void
 internal_function
-_nl_load_domain (domain_file, domainbinding)
-     struct loaded_l10nfile *domain_file;
-     struct binding *domainbinding;
+_nl_load_domain (struct loaded_l10nfile *domain_file,
+		 struct binding *domainbinding)
 {
   __libc_lock_define_initialized_recursive (static, lock);
   int fd = -1;
@@ -1237,7 +1236,7 @@ _nl_load_domain (domain_file, domainbinding)
     default:
       /* This is an invalid revision.  */
     invalid:
-      /* This is an invalid .mo file.  */
+      /* This is an invalid .mo file or we ran out of resources.  */
       free (domain->malloced);
 #ifdef HAVE_MMAP
       if (use_mmap)
@@ -1257,6 +1256,11 @@ _nl_load_domain (domain_file, domainbinding)
 
   /* Get the header entry and look for a plural specification.  */
   nullentry = _nl_find_msg (domain_file, domainbinding, "", 0, &nullentrylen);
+  if (__builtin_expect (nullentry == (char *) -1, 0))
+    {
+      __libc_rwlock_fini (domain->conversions_lock);
+      goto invalid;
+    }
   EXTRACT_PLURAL_EXPRESSION (nullentry, &domain->plural, &domain->nplurals);
 
  out:
@@ -1272,8 +1276,7 @@ _nl_load_domain (domain_file, domainbinding)
 #ifdef _LIBC
 void
 internal_function __libc_freeres_fn_section
-_nl_unload_domain (domain)
-     struct loaded_domain *domain;
+_nl_unload_domain (struct loaded_domain *domain)
 {
   size_t i;
 

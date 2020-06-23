@@ -93,9 +93,7 @@ const struct __gconv_trans_data __libio_translit attribute_hidden =
    the orientation first.  */
 #undef _IO_fwide
 int
-_IO_fwide (fp, mode)
-     _IO_FILE *fp;
-     int mode;
+_IO_fwide (_IO_FILE *fp, int mode)
 {
   /* Normalize the value.  */
   mode = mode < 0 ? -1 : (mode == 0 ? 0 : 1);
@@ -199,12 +197,6 @@ _IO_fwide (fp, mode)
 
       /* From now on use the wide character callback functions.  */
       ((struct _IO_FILE_plus *) fp)->vtable = fp->_wide_data->_wide_vtable;
-
-      /* One last twist: we get the current stream position.  The wide
-	 char streams have much more problems with not knowing the
-	 current position and so we should disable the optimization
-	 which allows the functions without knowing the position.  */
-      fp->_offset = _IO_SYSSEEK (fp, 0, _IO_seek_cur);
     }
 
   /* Set the mode now.  */

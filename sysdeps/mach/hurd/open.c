@@ -22,7 +22,7 @@
 #include <hurd.h>
 #include <hurd/fd.h>
 
-/* Open FILE with access OFLAG.  If OFLAG includes O_CREAT,
+/* Open FILE with access OFLAG.  If O_CREAT or O_TMPFILE is in OFLAG,
    a third argument is the file protection.  */
 int
 __libc_open (const char *file, int oflag, ...)
@@ -30,7 +30,7 @@ __libc_open (const char *file, int oflag, ...)
   mode_t mode;
   io_t port;
 
-  if (oflag & O_CREAT)
+  if (__OPEN_NEEDS_MODE (oflag))
     {
       va_list arg;
       va_start (arg, oflag);
@@ -52,20 +52,9 @@ weak_alias (__libc_open, __open)
 libc_hidden_weak (__open)
 weak_alias (__libc_open, open)
 
-int
-__open_2 (file, oflag)
-     const char *file;
-     int oflag;
-{
-  if (oflag & O_CREAT)
-    __fortify_fail ("invalid open call: O_CREAT without mode");
-
-  return __open (file, oflag);
-}
 
 /* open64 is just the same as open for us.  */
 weak_alias (__libc_open, __libc_open64)
 weak_alias (__libc_open, __open64)
 libc_hidden_weak (_open64)
 weak_alias (__libc_open, open64)
-strong_alias (__open_2, __open64_2)

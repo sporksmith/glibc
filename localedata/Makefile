@@ -77,7 +77,7 @@ locale_test_suite := tst_iswalnum tst_iswalpha tst_iswcntrl            \
 
 tests = $(locale_test_suite) tst-digits tst-setlocale bug-iconv-trans \
 	tst-leaks tst-mbswcs6 tst-xlocale1 tst-xlocale2 bug-usesetlocale \
-	tst-strfmon1 tst-sscanf bug-setlocale1 tst-setlocale2
+	tst-strfmon1 tst-sscanf bug-setlocale1 tst-setlocale2 tst-setlocale3
 ifeq (yes,$(build-shared))
 ifneq (no,$(PERL))
 tests: $(objpfx)mtrace-tst-leaks
@@ -120,7 +120,7 @@ LOCALES := de_DE.ISO-8859-1 de_DE.UTF-8 en_US.ANSI_X3.4-1968 \
 	   hr_HR.ISO-8859-2 sv_SE.ISO-8859-1 ja_JP.SJIS fr_FR.ISO-8859-1 \
 	   nb_NO.ISO-8859-1 nn_NO.ISO-8859-1 tr_TR.UTF-8 cs_CZ.UTF-8 \
 	   zh_TW.EUC-TW fa_IR.UTF-8 fr_FR.UTF-8 ja_JP.UTF-8 si_LK.UTF-8 \
-	   tr_TR.ISO-8859-9
+	   tr_TR.ISO-8859-9 tg_TJ.UTF-8 te_IN.UTF-8 bn_IN.UTF-8 el_GR.UTF-8
 LOCALE_SRCS := $(shell echo "$(LOCALES)"|sed 's/\([^ .]*\)[^ ]*/\1/g')
 CHARMAPS := $(shell echo "$(LOCALES)" | \
 		    sed -e 's/[^ .]*[.]\([^ ]*\)/\1/g' -e s/SJIS/SHIFT_JIS/g)
@@ -210,83 +210,18 @@ $(INSTALL-SUPPORTED-LOCALES): install-locales-dir
 	echo -n '...'; \
 	input=`echo $$locale | sed 's/\([^.]*\)[^@]*\(.*\)/\1\2/'`; \
 	$(LOCALEDEF) --alias-file=../intl/locale.alias \
+		     --no-archive \
 		     -i locales/$$input -c -f charmaps/$$charset \
 		     $(addprefix --prefix=,$(install_root)) $$locale; \
 	echo ' done'; \
 
-# The mbwc-tests need some environment setup to find the locale data files
-TEST_MBWC_ENV:= LOCPATH=$(common-objpfx)localedata
-tst_iswalnum-ENV = $(TEST_MBWC_ENV)
-tst_iswalpha-ENV = $(TEST_MBWC_ENV)
-tst_iswcntrl-ENV = $(TEST_MBWC_ENV)
-tst_iswctype-ENV = $(TEST_MBWC_ENV)
-tst_iswdigit-ENV = $(TEST_MBWC_ENV)
-tst_iswgraph-ENV = $(TEST_MBWC_ENV)
-tst_iswlower-ENV = $(TEST_MBWC_ENV)
-tst_iswprint-ENV = $(TEST_MBWC_ENV)
-tst_iswpunct-ENV = $(TEST_MBWC_ENV)
-tst_iswspace-ENV = $(TEST_MBWC_ENV)
-tst_iswupper-ENV = $(TEST_MBWC_ENV)
-tst_iswxdigit-ENV = $(TEST_MBWC_ENV)
-tst_mblen-ENV = $(TEST_MBWC_ENV)
-tst_mbrlen-ENV = $(TEST_MBWC_ENV)
-tst_mbrtowc-ENV = $(TEST_MBWC_ENV)
-tst_mbsrtowcs-ENV = $(TEST_MBWC_ENV)
-tst_mbstowcs-ENV = $(TEST_MBWC_ENV)
-tst_mbtowc-ENV = $(TEST_MBWC_ENV)
-tst_strcoll-ENV = $(TEST_MBWC_ENV)
-tst_strfmon-ENV = $(TEST_MBWC_ENV)
-tst_strxfrm-ENV = $(TEST_MBWC_ENV)
-tst_swscanf-ENV = $(TEST_MBWC_ENV)
-tst_towctrans-ENV = $(TEST_MBWC_ENV)
-tst_towlower-ENV = $(TEST_MBWC_ENV)
-tst_towupper-ENV = $(TEST_MBWC_ENV)
-tst_wcrtomb-ENV = $(TEST_MBWC_ENV)
-tst_wcscat-ENV = $(TEST_MBWC_ENV)
-tst_wcschr-ENV = $(TEST_MBWC_ENV)
-tst_wcscmp-ENV = $(TEST_MBWC_ENV)
-tst_wcscoll-ENV = $(TEST_MBWC_ENV)
-tst_wcscpy-ENV = $(TEST_MBWC_ENV)
-tst_wcscspn-ENV = $(TEST_MBWC_ENV)
-tst_wcslen-ENV = $(TEST_MBWC_ENV)
-tst_wcsncat-ENV = $(TEST_MBWC_ENV)
-tst_wcsncmp-ENV = $(TEST_MBWC_ENV)
-tst_wcsncpy-ENV = $(TEST_MBWC_ENV)
-tst_wcspbrk-ENV = $(TEST_MBWC_ENV)
-tst_wcsrtombs-ENV = $(TEST_MBWC_ENV)
-tst_wcsspn-ENV = $(TEST_MBWC_ENV)
-tst_wcsstr-ENV = $(TEST_MBWC_ENV)
-tst_wcstod-ENV = $(TEST_MBWC_ENV)
-tst_wcstok-ENV = $(TEST_MBWC_ENV)
-tst_wcstombs-ENV = $(TEST_MBWC_ENV)
-tst_wcswidth-ENV = $(TEST_MBWC_ENV)
-tst_wcsxfrm-ENV = $(TEST_MBWC_ENV)
-tst_wctob-ENV = $(TEST_MBWC_ENV)
-tst_wctomb-ENV = $(TEST_MBWC_ENV)
-tst_wctrans-ENV = $(TEST_MBWC_ENV)
-tst_wctype-ENV = $(TEST_MBWC_ENV)
-tst_wcwidth-ENV = $(TEST_MBWC_ENV)
-tst-digits-ENV = $(TEST_MBWC_ENV)
-tst-mbswcs6-ENV = $(TEST_MBWC_ENV)
-tst-xlocale1-ENV = $(TEST_MBWC_ENV)
-tst-xlocale2-ENV = $(TEST_MBWC_ENV)
-tst-strfmon1-ENV = $(TEST_MBWC_ENV)
-tst-strptime-ENV = $(TEST_MBWC_ENV)
+tst-setlocale-ENV = LC_ALL=ja_JP.EUC-JP
 
-tst-setlocale-ENV = LOCPATH=$(common-objpfx)localedata LC_ALL=ja_JP.EUC-JP
-
-bug-iconv-trans-ENV = LOCPATH=$(common-objpfx)localedata
-
-tst-sscanf-ENV = LOCPATH=$(common-objpfx)localedata
-
-tst-leaks-ENV = MALLOC_TRACE=$(objpfx)tst-leaks.mtrace \
-		LOCPATH=$(common-objpfx)localedata
+tst-leaks-ENV = MALLOC_TRACE=$(objpfx)tst-leaks.mtrace
 $(objpfx)mtrace-tst-leaks: $(objpfx)tst-leaks.out
 	$(common-objpfx)malloc/mtrace $(objpfx)tst-leaks.mtrace > $@
 
-bug-setlocale1-ENV = LOCPATH=$(common-objpfx)localedata
 bug-setlocale1-ARGS = $(common-objpfx)
-tst-setlocale2-ENV = LOCPATH=$(common-objpfx)localedata
 
 $(objdir)/iconvdata/gconv-modules:
 	$(MAKE) -C ../iconvdata subdir=iconvdata $@
