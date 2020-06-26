@@ -118,6 +118,9 @@
   lea rtld_errno(%rip), %RCX_LP;		\
   neg %eax;					\
   movl %eax, (%rcx)
+#  define SYSCALL_GET_ERRNO \
+  lea rtld_errno(%rip), %RCX_LP;		\
+  movl (%rcx), %eax
 # else
 #  if IS_IN (libc)
 #   define SYSCALL_ERROR_ERRNO __libc_errno
@@ -128,6 +131,9 @@
   movq SYSCALL_ERROR_ERRNO@GOTTPOFF(%rip), %rcx;\
   neg %eax;					\
   movl %eax, %fs:(%rcx);
+#  define SYSCALL_GET_ERRNO			\
+  movq SYSCALL_ERROR_ERRNO@GOTTPOFF(%rip), %rcx;\
+  movl %fs:(%rcx), %eax;
 # endif
 
 # ifndef PIC
@@ -177,10 +183,47 @@
     Syscalls of more than 6 arguments are not supported.  */
 
 # undef	DO_CALL
+#ifdef SHARED
+# define DO_CALL(syscall_name, args)		\
+    DOARGS_##args				\
+    movl $SYS_ify (syscall_name), %eax;		\
+\
+    /* shift regs into position for call */ \
+    pushq   %r9 ;\
+    movq    %r8, %r9 ;\
+    movq    %rcx, %r8 ;\
+    movq    %rdx, %rcx ;\
+    movq    %rsi, %rdx ;\
+    movq    %rdi, %rsi ;\
+    movq    %rax, %rdi ;\
+    movl    $0, %eax ;\
+\
+    /* make the call */ \
+    callq syscall@plt; \
+\
+    /* get whatever syscall set errno to, (in rcx) */ \
+    push %rcx ; \
+    push %rax ; \
+    SYSCALL_GET_ERRNO ; \
+    movq %rax, %rcx ; \
+    pop %rax ; \
+\
+    /* if %rax is -1, use errno to set the original \
+       syscall rv: negated errno */ \
+    neg %rcx ; \
+    cmpq $-1, %rax; \
+    cmove %rcx, %rax; \
+\
+    /* restore */ \
+    pop %rcx ;\
+    pop %r9 ;\
+    /* TODO: restore other registers? */
+#else
 # define DO_CALL(syscall_name, args)		\
     DOARGS_##args				\
     movl $SYS_ify (syscall_name), %eax;		\
     syscall;
+#endif
 
 # define DOARGS_0 /* nothing */
 # define DOARGS_1 /* nothing */
